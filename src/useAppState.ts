@@ -97,6 +97,7 @@ export function useAppState() {
   const deviceIdRef = useRef<string>(getDeviceId());
   const [state, setRawState] = useState<SavedState>(getDefaultState);
   const [isLoaded, setIsLoaded] = useState(false);
+  const fetchingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const loadState = async () => {
@@ -194,9 +195,8 @@ export function useAppState() {
   ) => {
     setRawState(prev => {
       const resolved = typeof value === 'function' ? value(prev) : value;
-      const pruned = pruneInactiveState(resolved);
       return {
-        ...pruned,
+        ...resolved,
         updatedAt: Date.now()
       };
     });
@@ -239,6 +239,10 @@ export function useAppState() {
       
       // If seasonsCount is not set, heal full details first from TMDB to get the real seasons count
       if (!currentSeasonsCount) {
+        const fetchKey = `${show.id}-details`;
+        if (fetchingRef.current.has(fetchKey)) return;
+        fetchingRef.current.add(fetchKey);
+
         try {
           const freshDetails = await fetchMediaDetails(show.id, 'show');
           if (freshDetails && freshDetails.seasonsCount) {
@@ -255,6 +259,8 @@ export function useAppState() {
           }
         } catch (e) {
           console.warn(`Failed to background-heal details for show ${show.id}`, e);
+        } finally {
+          fetchingRef.current.delete(fetchKey);
         }
       }
 
@@ -262,6 +268,10 @@ export function useAppState() {
 
       // If we don't have seasons loaded yet, or we have fewer seasons than total seasonsCount, fetch them!
       if (!show.seasons || show.seasons.length < targetCount) {
+        const fetchKey = `${show.id}-seasons-${targetCount}`;
+        if (fetchingRef.current.has(fetchKey)) return;
+        fetchingRef.current.add(fetchKey);
+
         try {
           const fetchedSeasons = await fetchShowSeasons(show.id, targetCount);
           if (fetchedSeasons && fetchedSeasons.length > 0) {
@@ -281,6 +291,8 @@ export function useAppState() {
           }
         } catch (err) {
           console.warn(`Failed to background-fetch seasons for show ${show.id}`, err);
+        } finally {
+          fetchingRef.current.delete(fetchKey);
         }
       }
     });
