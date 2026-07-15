@@ -825,24 +825,24 @@ async function startServer() {
             userId: deviceId,
             mediaId: show.id,
             type: 'show',
-            title: show.title,
-            posterPath: show.posterPath,
-            backdropPath: show.backdropPath,
-            overview: show.overview,
-            releaseDate: show.releaseDate,
-            genres: show.genres,
-            rating: show.rating?.toString(),
-            runtime: show.runtime,
-            seasonsCount: show.seasonsCount,
-            episodesCount: show.episodesCount,
+            title: show.title || 'Untitled',
+            posterPath: show.posterPath || null,
+            backdropPath: show.backdropPath || null,
+            overview: show.overview || null,
+            releaseDate: show.releaseDate || null,
+            genres: show.genres || null,
+            rating: show.rating?.toString() || null,
+            runtime: show.runtime !== undefined ? show.runtime : null,
+            seasonsCount: show.seasonsCount !== undefined ? show.seasonsCount : null,
+            episodesCount: show.episodesCount !== undefined ? show.episodesCount : null,
             inWatchlist: show.inWatchlist || false,
             isFavorite: show.isFavorite || false,
-            userRating: show.userRating,
+            userRating: show.userRating !== undefined ? show.userRating : null,
             completed: show.completed || false,
             stoppedWatching: show.stoppedWatching || false,
-            lastWatchedAt: show.lastWatchedAt ? new Date(show.lastWatchedAt).toISOString() : null,
-            seasons: show.seasons,
-            imdbId: show.imdbId
+            lastWatchedAt: show.lastWatchedAt ? new Date(show.lastWatchedAt) : null,
+            seasons: show.seasons || null,
+            imdbId: show.imdbId || null
           });
         });
       }
@@ -854,20 +854,20 @@ async function startServer() {
             userId: deviceId,
             mediaId: movie.id,
             type: 'movie',
-            title: movie.title,
-            posterPath: movie.posterPath,
-            backdropPath: movie.backdropPath,
-            overview: movie.overview,
-            releaseDate: movie.releaseDate,
-            genres: movie.genres,
-            rating: movie.rating?.toString(),
-            runtime: movie.runtime,
+            title: movie.title || 'Untitled',
+            posterPath: movie.posterPath || null,
+            backdropPath: movie.backdropPath || null,
+            overview: movie.overview || null,
+            releaseDate: movie.releaseDate || null,
+            genres: movie.genres || null,
+            rating: movie.rating?.toString() || null,
+            runtime: movie.runtime !== undefined ? movie.runtime : null,
             inWatchlist: movie.inWatchlist || false,
             isFavorite: movie.isFavorite || false,
-            userRating: movie.userRating,
+            userRating: movie.userRating !== undefined ? movie.userRating : null,
             completed: movie.completed || false,
-            lastWatchedAt: movie.lastWatchedAt ? new Date(movie.lastWatchedAt).toISOString() : null,
-            imdbId: movie.imdbId
+            lastWatchedAt: movie.lastWatchedAt ? new Date(movie.lastWatchedAt) : null,
+            imdbId: movie.imdbId || null
           });
         });
       }
@@ -897,7 +897,7 @@ async function startServer() {
                    userId: deviceId,
                    showId,
                    episodeKey: epKey,
-                   watchedAt: new Date().toISOString()
+                   watchedAt: new Date()
                  });
                }
              });
@@ -967,7 +967,7 @@ async function startServer() {
         userRating: media.userRating,
         completed: media.completed,
         stoppedWatching: media.stoppedWatching,
-        lastWatchedAt: media.lastWatchedAt ? new Date(media.lastWatchedAt).toISOString() : null,
+        lastWatchedAt: media.lastWatchedAt ? new Date(media.lastWatchedAt) : null,
         seasons: media.seasons,
         imdbId: media.imdbId
       };
@@ -1021,7 +1021,7 @@ async function startServer() {
             userId: deviceId,
             showId: showId,
             episodeKey: episodeKey,
-            watchedAt: new Date().toISOString()
+            watchedAt: new Date()
           });
         }
       } else {
@@ -1033,7 +1033,7 @@ async function startServer() {
             userId: deviceId,
             showId: showId,
             episodeKey: episodeKey,
-            watchedAt: new Date().toISOString()
+            watchedAt: new Date()
           });
         }
         saveDb(localDb);
