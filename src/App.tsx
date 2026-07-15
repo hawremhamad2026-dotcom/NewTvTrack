@@ -1,0 +1,2166 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import { useAppState } from './useAppState';
+import { getDeviceId, setDeviceId } from './lib/auth';
+import { Navbar, TabType } from './components/Navbar';
+import { MediaCard } from './components/MediaCard';
+import { DetailModal } from './components/DetailModal';
+import { PasscodeScreen } from './components/PasscodeScreen';
+import { SitePasswordGate } from './components/SitePasswordGate';
+import HlsVideoPlayer from './components/HlsVideoPlayer';
+import { MediaItem, MediaType } from './types';
+import { fetchTrending, fetchDiscover, fetchPopular, searchMedia, GENRE_MAP } from './tmdb';
+import { AnimatePresence } from 'motion/react';
+import {
+  Search,
+  Sparkles,
+  Flame,
+  Filter,
+  Calendar,
+  Tv,
+  Film,
+  Award,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Compass,
+  Bookmark,
+  Heart,
+  TrendingUp,
+  Inbox,
+  AlertCircle,
+  Check,
+  Cloud,
+  CloudOff,
+  LogOut,
+  LogIn,
+  User,
+  Lock,
+  Mail,
+  RefreshCw,
+  AlertTriangle,
+  Download,
+  Upload,
+  Key,
+  Sun,
+  Moon,
+} from 'lucide-react';
+
+export default function App() {
+  const state = useAppState();
+
+  const updateGlobalSecurity = (newCode: string | null) => {
+    try {
+      if (newCode) {
+        localStorage.setItem('tv_tracker_master_passcode', newCode);
+        localStorage.setItem('tv_tracker_master_passcode_verified', newCode);
+      } else {
+        localStorage.removeItem('tv_tracker_master_passcode');
+        localStorage.removeItem('tv_tracker_master_passcode_verified');
+      }
+      setGlobalPasscode(newCode);
+    } catch (err) {
+      console.error('Error saving global security lock:', err);
+    }
+  };
+
+
+  // Cloud Sync & Data states
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState(false);
+  const [importSuccess, setImportSuccess] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const handleExportFile = () => {
+    try {
+      state.exportState();
+    } catch (err: any) {
+      console.error('Failed to export state:', err);
+    }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportSuccess(false);
+    setImportError(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.shows) || !Array.isArray(parsed.movies)) {
+          throw new Error('Invalid backup file structure.');
+        }
+        state.importState(parsed);
+        setImportSuccess(true);
+        setTimeout(() => setImportSuccess(false), 4000);
+      } catch (err: any) {
+        console.error('Import error:', err);
+        setImportError(err.message || 'Failed to parse JSON backup file.');
+        setTimeout(() => setImportError(null), 5000);
+      }
+    };
+    reader.onerror = () => {
+      setImportError('Failed to read backup file.');
+      setTimeout(() => setImportError(null), 5000);
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset file input
+  };
+
+  
+  // Global Master Website Lock states (Firestore synchronized)
+  const [globalPasscode, setGlobalPasscode] = useState<string | null>(null);
+  const [isGlobalLockEnabled, setIsGlobalLockEnabled] = useState<boolean>(false);
+  const [isLoadingSecurity, setIsLoadingSecurity] = useState<boolean>(true);
+  const [showPasscodeModal, setShowPasscodeModal] = useState<boolean>(false);
+  const [passcodeModalMode, setPasscodeModalMode] = useState<'setup' | 'disable' | 'change'>('setup');
+
+
+
+
+
+
+
+  const [isSiteLocked, setIsSiteLocked] = useState<boolean>(() => {
+    return localStorage.getItem('site_unlocked') !== 'true';
+  });
+
+  const [customTmdbKey, setCustomTmdbKey] = useState(localStorage.getItem('CUSTOM_TMDB_API_KEY') || '');
+  const [customTraktKey, setCustomTraktKey] = useState(localStorage.getItem('CUSTOM_TRAKT_CLIENT_ID') || '');
+  const [apiKeysSavedMessage, setApiKeysSavedMessage] = useState(false);
+
+  const handleSaveApiKeys = () => {
+    if (customTmdbKey.trim()) {
+      localStorage.setItem('CUSTOM_TMDB_API_KEY', customTmdbKey.trim());
+    } else {
+      localStorage.removeItem('CUSTOM_TMDB_API_KEY');
+    }
+
+    if (customTraktKey.trim()) {
+      localStorage.setItem('CUSTOM_TRAKT_CLIENT_ID', customTraktKey.trim());
+    } else {
+      localStorage.removeItem('CUSTOM_TRAKT_CLIENT_ID');
+    }
+    
+    setApiKeysSavedMessage(true);
+    setTimeout(() => {
+      setApiKeysSavedMessage(false);
+      window.location.reload();
+    }, 1500);
+  };
+
+  const isAppLocked = !isLoadingSecurity && isGlobalLockEnabled && !!globalPasscode && 
+    localStorage.getItem('tv_tracker_master_passcode_verified') !== globalPasscode;
+  
+  const [activeTab, setActiveTab] = useState<TabType>('tv');
+  const [selectedMediaItem, setSelectedMediaItem] = useState<MediaItem | null>(null);
+  const [autoPlayConfig, setAutoPlayConfig] = useState<{
+    server?: string;
+    externalPlayer?: string;
+    seasonNumber?: number;
+    episodeNumber?: number;
+    streamUrl?: string;
+  } | null>(null);
+
+  // Sub-tab states
+  const [tvSubTab, setTvSubTab] = useState<'watchlist' | 'upcoming'>('watchlist');
+  const [movieSubTab, setMovieSubTab] = useState<'watchlist' | 'upcoming'>('watchlist');
+
+  // Collapsible accordion states for TV watchlist
+  const [watchNextOpen, setWatchNextOpen] = useState(true);
+  const [longTimeOpen, setLongTimeOpen] = useState(true);
+  const [waitingOpen, setWaitingOpen] = useState(true);
+  const [notStartedOpen, setNotStartedOpen] = useState(true);
+
+  // Explore Tab specific states
+  const [watchHistory, setWatchHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    import('./lib/watchHistory').then(({ getWatchHistory }) => {
+      setWatchHistory(getWatchHistory());
+    });
+    
+    const handleUpdate = () => {
+      import('./lib/watchHistory').then(({ getWatchHistory }) => {
+        setWatchHistory(getWatchHistory());
+      });
+    };
+    window.addEventListener('watchHistoryUpdated', handleUpdate);
+    return () => window.removeEventListener('watchHistoryUpdated', handleUpdate);
+  }, []);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<MediaItem[]>([]);
+  const [searching, setSearching] = useState(false);
+  
+  // Trending daily vs weekly
+  const [trendingDaily, setTrendingDaily] = useState<MediaItem[]>([]);
+  const [trendingWeekly, setTrendingWeekly] = useState<MediaItem[]>([]);
+  const [trendingTimeframe, setTrendingTimeframe] = useState<'day' | 'week'>('week');
+
+  // Popular section
+  const [popularItems, setPopularItems] = useState<MediaItem[]>([]);
+  const [popularType, setPopularType] = useState<MediaType>('show');
+  const [loadingPopular, setLoadingPopular] = useState(false);
+
+  // Discover/Browse with sorting
+  const [discoverType, setDiscoverType] = useState<MediaType>('show'); // 'show' or 'movie'
+  const [discoverItems, setDiscoverItems] = useState<MediaItem[]>([]);
+  const [discoverPage, setDiscoverPage] = useState(1);
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [selectedYear, setSelectedYear] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'popularity' | 'rating' | 'year'>('popularity');
+  const [loadingDiscover, setLoadingDiscover] = useState(false);
+
+  // Profile Tab specific states
+
+  const [profileListTab, setProfileListTab] = useState<'completed_tv' | 'completed_movies' | 'fav_tv' | 'fav_movies' | 'stopped_watching'>('completed_tv');
+  const [syncIdInput, setSyncIdInput] = useState('');
+  const [isEditingSyncId, setIsEditingSyncId] = useState(false);
+  const [isLightMode, setIsLightMode] = useState(() => {
+    return localStorage.getItem('theme') === 'light';
+  });
+
+  useEffect(() => {
+    if (isLightMode) {
+      document.body.classList.add('theme-light');
+      localStorage.setItem('theme', 'light');
+    } else {
+      document.body.classList.remove('theme-light');
+      localStorage.setItem('theme', 'dark');
+    }
+  }, [isLightMode]);
+
+
+  // Dynamic genres list based on active discover type (TV show vs Movie) using real TMDB genre IDs
+  const genresList = React.useMemo(() => {
+    if (discoverType === 'show') {
+      return [
+        { id: null, name: 'All' },
+        { id: '18', name: 'Drama' },
+        { id: '10765', name: 'Sci-Fi' },
+        { id: '10759', name: 'Action' },
+        { id: '35', name: 'Comedy' },
+        { id: '16', name: 'Animation' },
+        { id: '9648', name: 'Mystery' },
+        { id: '80', name: 'Crime' },
+        { id: '99', name: 'Documentary' },
+        { id: '10764', name: 'Reality' },
+        { id: '10751', name: 'Family' },
+      ];
+    } else {
+      return [
+        { id: null, name: 'All' },
+        { id: '18', name: 'Drama' },
+        { id: '878', name: 'Sci-Fi' },
+        { id: '28', name: 'Action' },
+        { id: '35', name: 'Comedy' },
+        { id: '16', name: 'Animation' },
+        { id: '9648', name: 'Mystery' },
+        { id: '53', name: 'Thriller' },
+        { id: '10749', name: 'Romance' },
+        { id: '27', name: 'Horror' },
+        { id: '12', name: 'Adventure' },
+        { id: '14', name: 'Fantasy' },
+        { id: '80', name: 'Crime' },
+        { id: '99', name: 'Documentary' },
+        { id: '10751', name: 'Family' },
+      ];
+    }
+  }, [discoverType]);
+
+  // Fetch initial Explore data (Trending, Discover, and Popular) on mount
+  useEffect(() => {
+    const loadExploreData = async () => {
+      try {
+        const [dailyData, weeklyData] = await Promise.all([
+          fetchTrending('all', 'day'),
+          fetchTrending('all', 'week')
+        ]);
+        setTrendingDaily(dailyData);
+        setTrendingWeekly(weeklyData);
+
+        const discoverData = await fetchDiscover('show', 1, undefined, sortBy, selectedYear || undefined);
+        const uniqueDiscoverData = Array.from(new Map(discoverData.map(item => [item.id, item])).values());
+        setDiscoverItems(uniqueDiscoverData);
+
+        const popularData = await fetchPopular('show', 1);
+        setPopularItems(popularData);
+      } catch (error) {
+        console.error('Error fetching initial explore data:', error);
+      }
+    };
+    loadExploreData();
+  }, []);
+
+  // Handle Discover Type Selection (TV Series vs Movies)
+  const handleDiscoverTypeSelect = async (type: MediaType) => {
+    setDiscoverType(type);
+    setSelectedGenre(null);
+    setSelectedYear('');
+    setDiscoverPage(1);
+    setLoadingDiscover(true);
+    try {
+      const data = await fetchDiscover(type, 1, undefined, sortBy, undefined);
+      const uniqueData = Array.from(new Map(data.map(item => [item.id, item])).values());
+      setDiscoverItems(uniqueData);
+    } catch (e) {
+      console.error('Failed to change discover type:', e);
+    } finally {
+      setLoadingDiscover(false);
+    }
+  };
+
+  // Handle Genre selection in Explore tab
+  const handleGenreSelect = async (genreId: string | null) => {
+    setSelectedGenre(genreId);
+    setDiscoverPage(1);
+    setLoadingDiscover(true);
+    try {
+      const data = await fetchDiscover(discoverType, 1, genreId || undefined, sortBy, selectedYear || undefined);
+      const uniqueData = Array.from(new Map(data.map(item => [item.id, item])).values());
+      setDiscoverItems(uniqueData);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingDiscover(false);
+    }
+  };
+
+  // Handle Sort Selection in Explore tab
+  const handleSortSelect = async (sortVal: 'popularity' | 'rating' | 'year') => {
+    setSortBy(sortVal);
+    setDiscoverPage(1);
+    setLoadingDiscover(true);
+    try {
+      const data = await fetchDiscover(discoverType, 1, selectedGenre || undefined, sortVal, selectedYear || undefined);
+      const uniqueData = Array.from(new Map(data.map(item => [item.id, item])).values());
+      setDiscoverItems(uniqueData);
+    } catch (e) {
+      console.error('Failed to sort discover items:', e);
+    } finally {
+      setLoadingDiscover(false);
+    }
+  };
+
+  // Handle Year Selection in Explore tab
+  const handleYearSelect = async (year: string) => {
+    const yearVal = year === 'All' ? '' : year;
+    setSelectedYear(yearVal);
+    setDiscoverPage(1);
+    setLoadingDiscover(true);
+    try {
+      const data = await fetchDiscover(discoverType, 1, selectedGenre || undefined, sortBy, yearVal || undefined);
+      const uniqueData = Array.from(new Map(data.map(item => [item.id, item])).values());
+      setDiscoverItems(uniqueData);
+    } catch (e) {
+      console.error('Failed to filter discover items by year:', e);
+    } finally {
+      setLoadingDiscover(false);
+    }
+  };
+
+  // Handle Popular Type Selection in Explore tab
+  const handlePopularTypeSelect = async (type: MediaType) => {
+    setPopularType(type);
+    setLoadingPopular(true);
+    try {
+      const data = await fetchPopular(type, 1);
+      setPopularItems(data);
+    } catch (e) {
+      console.error('Failed to change popular type:', e);
+    } finally {
+      setLoadingPopular(false);
+    }
+  };
+
+  // Simulate infinite scroll by loading more discover items
+  const handleLoadMoreDiscover = async () => {
+    const nextPage = discoverPage + 1;
+    setLoadingDiscover(true);
+    try {
+      const data = await fetchDiscover(discoverType, nextPage, selectedGenre || undefined, sortBy, selectedYear || undefined);
+      setDiscoverItems(prev => {
+        const unique = new Map();
+        prev.forEach(item => unique.set(item.id, item));
+        data.forEach(item => unique.set(item.id, item));
+        return Array.from(unique.values());
+      });
+      setDiscoverPage(nextPage);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingDiscover(false);
+    }
+  };
+
+  // Real-time search handler with standard debounce simulation
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const delayDebounce = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const { results } = await searchMedia(searchTerm);
+        setSearchResults(results);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setSearching(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounce);
+  }, [searchTerm]);
+
+  // Helper to sync the modal's selected item if state changes underneath
+  const currentModalItem = selectedMediaItem
+    ? selectedMediaItem.type === 'show'
+      ? state.shows.find(s => s.id === selectedMediaItem.id) || selectedMediaItem
+      : state.movies.find(m => m.id === selectedMediaItem.id) || selectedMediaItem
+    : null;
+
+  // Calculates countdown days for TV upcoming releases relative to current local time
+  const getHumanCountdown = (airDateStr: string): string => {
+    const CURRENT_TIME = new Date();
+    const airDate = new Date(airDateStr);
+    
+    const d1 = Date.UTC(CURRENT_TIME.getFullYear(), CURRENT_TIME.getMonth(), CURRENT_TIME.getDate());
+    const d2 = Date.UTC(airDate.getFullYear(), airDate.getMonth(), airDate.getDate());
+    
+    const diffDays = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Tomorrow';
+    if (diffDays === -1) return 'Yesterday';
+    if (diffDays > 1) return `In ${diffDays} days`;
+    return `${Math.abs(diffDays)} days ago`;
+  };
+
+  // Calculates precise remaining days, hours, and minutes until an episode airs
+  const getDetailedCountdown = (airDateStr: string, airTimeStr?: string) => {
+    const CURRENT_TIME = new Date();
+    const targetStr = `${airDateStr}T${airTimeStr || '20:00'}:00-07:00`;
+    const targetDate = new Date(targetStr);
+    
+    const diffMs = targetDate.getTime() - CURRENT_TIME.getTime();
+    if (diffMs <= 0) {
+      return { totalHours: 0, days: 0, hours: 0, minutes: 0, isPast: true };
+    }
+    
+    const totalMinutes = Math.floor(diffMs / (1000 * 60));
+    const totalHours = Math.floor(totalMinutes / 60);
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    const minutes = totalMinutes % 60;
+    
+    return { totalHours, days, hours, minutes, isPast: false };
+  };
+
+  // Intercept and display full-screen player if videoUrl parameter is present in the address bar (for Open in New Tab)
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const videoUrlParam = searchParams ? searchParams.get('videoUrl') : null;
+  const titleParam = searchParams ? searchParams.get('title') || 'Video Player' : 'Video Player';
+  const kuSubParam = searchParams ? searchParams.get('kuSub') : null;
+  const enSubParam = searchParams ? searchParams.get('enSub') : null;
+
+  if (videoUrlParam) {
+    return (
+      <div className="fixed inset-0 bg-black z-50 flex flex-col justify-center items-center font-sans">
+        {/* Minimal header overlay */}
+        <div className="absolute top-5 left-5 z-20 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/5">
+          <div className="w-6 h-6 rounded bg-amber-500 flex items-center justify-center">
+            <Tv className="w-3.5 h-3.5 text-zinc-950" />
+          </div>
+          <span className="font-display font-bold text-xs text-[#F5F5F5]">{titleParam}</span>
+        </div>
+        <div className="absolute top-5 right-5 z-20">
+          <button
+            onClick={() => {
+              window.location.href = window.location.origin + window.location.pathname;
+            }}
+            className="px-3 py-1.5 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 text-xs font-bold rounded-lg border border-white/10 transition-colors cursor-pointer"
+          >
+            Back to App
+          </button>
+        </div>
+        <div className="w-full h-full flex items-center justify-center bg-black">
+          <HlsVideoPlayer
+            src={videoUrlParam.startsWith("http://") && !videoUrlParam.includes("localhost") ? `/api/proxy-video?url=${encodeURIComponent(videoUrlParam)}` : videoUrlParam}
+            kuSub={kuSubParam || undefined}
+            enSub={enSubParam || undefined}
+            title={titleParam}
+            className="w-full h-full object-contain"
+            controls
+            autoPlay
+            controlsList="nodownload"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Global Site Password Gate
+  if (isSiteLocked) {
+    return (
+      <SitePasswordGate
+        onUnlock={() => setIsSiteLocked(false)}
+      />
+    );
+  }
+
+  // Full-screen passcode unlock screen blocker on startup
+  if (isAppLocked) {
+    return (
+      <PasscodeScreen
+        mode="unlock"
+        correctPasscode={globalPasscode}
+        onSuccess={() => {
+          if (globalPasscode) {
+            localStorage.setItem('tv_tracker_master_passcode_verified', globalPasscode);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-[#F5F5F5] flex justify-center pb-24 font-sans select-none antialiased">
+      {/* Centered viewport wrapper optimized for responsive layouts across all devices */}
+      <div className="w-full max-w-md md:max-w-4xl lg:max-w-[92%] xl:max-w-7xl 2xl:max-w-[1400px] bg-[#050505] min-h-screen shadow-2xl flex flex-col relative border-x border-white/5 overflow-x-hidden transition-all duration-300">
+        
+        {/* APP GLOBAL TOP BAR */}
+        <header className="sticky top-0 bg-[#0A0A0A]/85 backdrop-blur-xl border-b border-white/5 h-16 flex items-center justify-between px-5 z-40">
+          <div className="flex items-center gap-2">
+
+
+            <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+              <Tv className="w-4.5 h-4.5 text-zinc-950" />
+            </div>
+            <span className="font-display font-bold text-lg tracking-tight bg-gradient-to-r from-[#F5F5F5] to-zinc-400 bg-clip-text text-transparent">
+              TV Time
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            
+
+                        
+            <span className="px-2.5 py-1.5 bg-zinc-900/60 border border-white/5 rounded-lg text-[10px] font-semibold text-zinc-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span>July 2026</span>
+            </span>
+          </div>
+        </header>
+
+        {/* ==============================================
+            MAIN TABS CONTENT SWITCHER
+            ============================================== */}
+        <main className="flex-grow p-4">              {/* 1. TV SHOWS TAB */}
+          {activeTab === 'tv' && (
+            <div className="space-y-4 animate-fade-in">
+              {/* SUB TABS FOR TV */}
+              <div className="flex bg-zinc-900/50 border border-white/5 p-1 rounded-xl">
+                <button
+                  id="tv-subtab-watchlist"
+                  onClick={() => setTvSubTab('watchlist')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    tvSubTab === 'watchlist'
+                      ? 'bg-zinc-850 text-amber-500 shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-200'
+                  }`}
+                >
+                  My Watchlist
+                </button>
+                <button
+                  id="tv-subtab-upcoming"
+                  onClick={() => setTvSubTab('upcoming')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    tvSubTab === 'upcoming'
+                      ? 'bg-zinc-850 text-amber-500 shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-200'
+                  }`}
+                >
+                  Upcoming Timeline
+                </button>
+              </div>
+
+              {/* WATCHLIST SUB TAB */}
+              {tvSubTab === 'watchlist' && (
+                <div className="space-y-3.5">
+                  
+                  {/* SECTION 1: WATCH NEXT (Accordion) */}
+                  <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl overflow-hidden shadow-md">
+                    <button
+                      id="accordion-watch-next"
+                      onClick={() => setWatchNextOpen(!watchNextOpen)}
+                      className="w-full flex items-center justify-between p-4 text-left border-b border-white/5 focus:outline-none cursor-pointer hover:bg-white/[0.01] transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-2 h-2 bg-amber-500 rounded-full shadow-lg shadow-amber-500/30" />
+                        <h2 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                          Watch Next ({state.tvWatchNext.length})
+                        </h2>
+                      </div>
+                      {watchNextOpen ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                    </button>
+                    
+                    {watchNextOpen && (
+                      <div className="p-4 bg-[#050505]/40">
+                        {state.tvWatchNext.length === 0 ? (
+                          <div className="text-center py-6 text-xs text-zinc-500 flex flex-col items-center gap-1.5">
+                            <Inbox className="w-6 h-6 text-zinc-600 stroke-[1.5]" />
+                            <span>No shows started with remaining episodes.</span>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.tvWatchNext.map(show => {
+                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const releasedCount = state.getReleasedEpisodesCount(show);
+                              const upcomingEp = state.upcomingTVTimeline?.find(ep => ep.showId === show.id);
+                              return (
+                                <MediaCard
+                                  key={show.id}
+                                  item={show}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(show.id, show.type, show);
+                                  }}
+                                  onClick={() => setSelectedMediaItem(show)}
+                                  watchedEpisodesCount={watched}
+                                  totalEpisodesCount={releasedCount}
+                                  upcomingEpisode={upcomingEp ? {
+                                    seasonNumber: upcomingEp.seasonNumber,
+                                    episodeNumber: upcomingEp.episodeNumber,
+                                    airDate: upcomingEp.airDate,
+                                    airTime: upcomingEp.airTime
+                                  } : null}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SECTION 2: HAVE NOT WATCHED FOR A WHILE (Accordion) */}
+                  <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl overflow-hidden shadow-md">
+                    <button
+                      id="accordion-long-time"
+                      onClick={() => setLongTimeOpen(!longTimeOpen)}
+                      className="w-full flex items-center justify-between p-4 text-left border-b border-white/5 focus:outline-none cursor-pointer hover:bg-white/[0.01] transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-2 h-2 bg-amber-600 rounded-full shadow-lg shadow-amber-600/30" />
+                        <h2 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                          Inactive Over 30 Days ({state.tvLongTimeNoWatch.length})
+                        </h2>
+                      </div>
+                      {longTimeOpen ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                    </button>
+
+                    {longTimeOpen && (
+                      <div className="p-4 bg-[#050505]/40">
+                        {state.tvLongTimeNoWatch.length === 0 ? (
+                          <div className="text-center py-6 text-xs text-zinc-500 flex flex-col items-center gap-1.5">
+                            <Check className="w-5 h-5 text-zinc-600" />
+                            <span>All started shows have recent activity!</span>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.tvLongTimeNoWatch.map(show => {
+                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const releasedCount = state.getReleasedEpisodesCount(show);
+                              const upcomingEp = state.upcomingTVTimeline?.find(ep => ep.showId === show.id);
+                              return (
+                                <MediaCard
+                                  key={show.id}
+                                  item={show}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(show.id, show.type, show);
+                                  }}
+                                  onClick={() => setSelectedMediaItem(show)}
+                                  watchedEpisodesCount={watched}
+                                  totalEpisodesCount={releasedCount}
+                                  upcomingEpisode={upcomingEp ? {
+                                    seasonNumber: upcomingEp.seasonNumber,
+                                    episodeNumber: upcomingEp.episodeNumber,
+                                    airDate: upcomingEp.airDate,
+                                    airTime: upcomingEp.airTime
+                                  } : null}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SECTION 2.5: WAITING FOR NEW EPISODES (Accordion) */}
+                  <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl overflow-hidden shadow-md">
+                    <button
+                      id="accordion-waiting"
+                      onClick={() => setWaitingOpen(!waitingOpen)}
+                      className="w-full flex items-center justify-between p-4 text-left border-b border-white/5 focus:outline-none cursor-pointer hover:bg-white/[0.01] transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-2 h-2 bg-blue-500 rounded-full shadow-lg shadow-blue-500/30" />
+                        <h2 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                          Waiting for New Episodes ({state.tvWaiting?.length || 0})
+                        </h2>
+                      </div>
+                      {waitingOpen ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                    </button>
+
+                    {waitingOpen && (
+                      <div className="p-4 bg-[#050505]/40">
+                        {!state.tvWaiting || state.tvWaiting.length === 0 ? (
+                          <div className="text-center py-6 text-xs text-zinc-500 flex flex-col items-center gap-1.5">
+                            <Clock className="w-5 h-5 text-zinc-600" />
+                            <span>No shows waiting for new episodes.</span>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.tvWaiting.map(show => {
+                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const releasedCount = state.getReleasedEpisodesCount(show);
+                              const upcomingEp = state.upcomingTVTimeline?.find(ep => ep.showId === show.id);
+                              return (
+                                <MediaCard
+                                  key={show.id}
+                                  item={show}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(show.id, show.type, show);
+                                  }}
+                                  onClick={() => setSelectedMediaItem(show)}
+                                  watchedEpisodesCount={watched}
+                                  totalEpisodesCount={releasedCount}
+                                  upcomingEpisode={upcomingEp ? {
+                                    seasonNumber: upcomingEp.seasonNumber,
+                                    episodeNumber: upcomingEp.episodeNumber,
+                                    airDate: upcomingEp.airDate,
+                                    airTime: upcomingEp.airTime
+                                  } : null}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SECTION 3: HAVE NOT STARTED (Accordion) */}
+                  <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl overflow-hidden shadow-md">
+                    <button
+                      id="accordion-not-started"
+                      onClick={() => setNotStartedOpen(!notStartedOpen)}
+                      className="w-full flex items-center justify-between p-4 text-left border-b border-white/5 focus:outline-none cursor-pointer hover:bg-white/[0.01] transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-2 h-2 bg-zinc-600 rounded-full" />
+                        <h2 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                          Have Not Started ({state.tvNotStarted.length})
+                        </h2>
+                      </div>
+                      {notStartedOpen ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                    </button>
+
+                    {notStartedOpen && (
+                      <div className="p-4 bg-[#050505]/40">
+                        {state.tvNotStarted.length === 0 ? (
+                          <div className="text-center py-6 text-xs text-zinc-500 flex flex-col items-center gap-1.5">
+                            <PlusIcon className="w-6 h-6 text-zinc-600" />
+                            <span>No unstarted shows tracked.</span>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.tvNotStarted.map(show => {
+                              const releasedCount = state.getReleasedEpisodesCount(show);
+                              const upcomingEp = state.upcomingTVTimeline?.find(ep => ep.showId === show.id);
+                              return (
+                                <MediaCard
+                                  key={show.id}
+                                  item={show}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(show.id, show.type, show);
+                                  }}
+                                  onClick={() => setSelectedMediaItem(show)}
+                                  watchedEpisodesCount={0}
+                                  totalEpisodesCount={releasedCount}
+                                  upcomingEpisode={upcomingEp ? {
+                                    seasonNumber: upcomingEp.seasonNumber,
+                                    episodeNumber: upcomingEp.episodeNumber,
+                                    airDate: upcomingEp.airDate,
+                                    airTime: upcomingEp.airTime
+                                  } : null}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              )}
+
+              {/* TV UPCOMING TIMELINE */}
+              {tvSubTab === 'upcoming' && (
+                <div className="space-y-4">
+                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider pl-1">
+                    Chronological Release Calendar
+                  </h3>
+
+                  {state.upcomingTVTimeline.length === 0 ? (
+                    <div className="bg-zinc-900/10 border border-white/5 p-8 rounded-2xl text-center text-xs text-zinc-500 flex flex-col items-center gap-2">
+                      <Calendar className="w-8 h-8 text-zinc-700 stroke-[1.5]" />
+                      <span>No upcoming releases found for tracked shows. Add shows like Stranger Things or Wednesday to see countdowns!</span>
+                    </div>
+                  ) : (
+                    <div className="relative border-l border-white/5 pl-4 ml-3 space-y-5 py-2">
+                      {state.upcomingTVTimeline.map((item, index) => {
+                        const countdown = getHumanCountdown(item.airDate);
+                        const isSoon = countdown === 'Today' || countdown === 'Tomorrow';
+                        
+                        return (
+                          <div key={item.episodeId} className="relative group select-none">
+                            {/* Point Indicator on timeline */}
+                            <span className={`absolute -left-[21px] top-1.5 w-2.5 h-2.5 rounded-full border border-zinc-950 transition-all ${
+                              isSoon ? 'bg-amber-500 ring-4 ring-amber-500/20' : 'bg-zinc-850'
+                            }`} />
+
+                            <div className="bg-zinc-900/40 hover:bg-[#0A0A0A]/80 border border-white/5 hover:border-white/10 p-3.5 rounded-xl flex gap-3.5 transition-all">
+                              <img
+                                src={item.showPoster}
+                                alt={item.showTitle}
+                                referrerPolicy="no-referrer"
+                                className="w-14 rounded-lg object-cover shadow-md shrink-0 cursor-pointer"
+                                onClick={() => {
+                                  const sItem = state.shows.find(s => s.id === item.showId);
+                                  if (sItem) setSelectedMediaItem(sItem);
+                                }}
+                              />
+                              <div className="flex-grow space-y-1">
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                  isSoon ? 'bg-amber-500 text-black font-black' : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                  {countdown}
+                                </span>
+                                
+                                <h4
+                                  onClick={() => {
+                                    const sItem = state.shows.find(s => s.id === item.showId);
+                                    if (sItem) setSelectedMediaItem(sItem);
+                                  }}
+                                  className="font-display font-bold text-sm text-[#F5F5F5] hover:text-amber-500 transition-colors cursor-pointer"
+                                >
+                                  {item.showTitle}
+                                </h4>
+
+                                <p className="text-xs text-zinc-400 font-medium leading-none">
+                                  Season {item.seasonNumber}, Ep {item.episodeNumber}
+                                </p>
+                                <p className="text-[11px] text-zinc-500 line-clamp-1 italic">
+                                  &ldquo;{item.episodeTitle}&rdquo;
+                                </p>
+
+                                <div className="text-[10px] text-zinc-500 flex items-center gap-1 pt-1 font-mono">
+                                  <Clock className="w-3 h-3 text-zinc-600" />
+                                  <span>{item.airDate} • {item.airTime}</span>
+                                </div>
+
+                                {/* Precise live-style ticking countdown relative to Jul 9, 2026 */}
+                                {!getDetailedCountdown(item.airDate, item.airTime).isPast && (
+                                  <div className="mt-2.5 pt-2 border-t border-white/5 flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mr-1">Countdown:</span>
+                                    <div className="flex items-center gap-1 font-mono select-none">
+                                      {getDetailedCountdown(item.airDate, item.airTime).days > 0 && (
+                                        <div className="flex items-center">
+                                          <span className="bg-zinc-950 px-1.5 py-0.5 border border-white/5 rounded text-[10px] font-black text-amber-500">
+                                            {String(getDetailedCountdown(item.airDate, item.airTime).days).padStart(2, '0')}
+                                          </span>
+                                          <span className="text-[9px] text-zinc-500 px-0.5">d</span>
+                                        </div>
+                                      )}
+                                      <div className="flex items-center">
+                                        <span className="bg-zinc-950 px-1.5 py-0.5 border border-white/5 rounded text-[10px] font-black text-amber-500">
+                                          {String(getDetailedCountdown(item.airDate, item.airTime).hours).padStart(2, '0')}
+                                        </span>
+                                        <span className="text-[9px] text-zinc-500 px-0.5">h</span>
+                                      </div>
+                                      <div className="flex items-center">
+                                        <span className="bg-zinc-950 px-1.5 py-0.5 border border-white/5 rounded text-[10px] font-black text-amber-500">
+                                          {String(getDetailedCountdown(item.airDate, item.airTime).minutes).padStart(2, '0')}
+                                        </span>
+                                        <span className="text-[9px] text-zinc-500 px-0.5">m</span>
+                                      </div>
+                                    </div>
+                                    <span className="text-[9px] text-amber-500/80 font-bold uppercase animate-pulse ml-1">
+                                      remaining
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 2. MOVIES TAB */}
+          {activeTab === 'movies' && (
+            <div className="space-y-4 animate-fade-in">
+              {/* SUB TABS FOR MOVIES */}
+              <div className="flex bg-zinc-900/50 border border-white/5 p-1 rounded-xl">
+                <button
+                  id="movies-subtab-released"
+                  onClick={() => setMovieSubTab('watchlist')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    movieSubTab === 'watchlist'
+                      ? 'bg-zinc-850 text-amber-500 shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-200'
+                  }`}
+                >
+                  Released Watchlist ({state.movieWatchlist.length})
+                </button>
+                <button
+                  id="movies-subtab-upcoming"
+                  onClick={() => setMovieSubTab('upcoming')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    movieSubTab === 'upcoming'
+                      ? 'bg-zinc-850 text-amber-500 shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-200'
+                  }`}
+                >
+                  Upcoming Releases ({state.movieUpcoming.length})
+                </button>
+              </div>
+
+               {/* MOVIE WATCHLIST */}
+              {movieSubTab === 'watchlist' && (
+                <div className="space-y-3">
+
+                  {state.movieWatchlist.length === 0 ? (
+                    <div className="bg-zinc-900/10 border border-white/5 p-10 rounded-2xl text-center text-xs text-zinc-500 flex flex-col items-center gap-2">
+                      <Film className="w-8 h-8 text-zinc-700 stroke-[1.5]" />
+                      <span>Your movie watchlist is empty. Go to the Explore tab and search movies to add them!</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                      {state.movieWatchlist.map(movie => (
+                        <MediaCard
+                                  key={movie.id}
+                                  item={movie}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(movie.id, movie.type, movie);
+                                  }}
+                          onClick={() => setSelectedMediaItem(movie)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* MOVIE UPCOMING */}
+              {movieSubTab === 'upcoming' && (
+                <div className="space-y-3">
+                  {state.movieUpcoming.length === 0 ? (
+                    <div className="bg-zinc-900/10 border border-white/5 p-10 rounded-2xl text-center text-xs text-zinc-500 flex flex-col items-center gap-2">
+                      <Calendar className="w-8 h-8 text-zinc-700 stroke-[1.5]" />
+                      <span>No unreleased upcoming movies added. Try adding Spider-Man: Beyond the Spider-Verse or Avatar: Fire and Ash!</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                      {state.movieUpcoming.map(movie => (
+                        <div key={movie.id} className="relative group select-none">
+                          <MediaCard
+                            item={movie}
+                            onClick={() => setSelectedMediaItem(movie)}
+                            onToggleWatchlist={(e) => {
+                              e.stopPropagation();
+                              state.toggleWatchlist(movie.id, movie.type, movie);
+                            }}
+                          />
+                          {/* Future Release airdate Overlay tag */}
+                          <div className="absolute bottom-16 left-2 right-2 px-2 py-1 bg-black/80 backdrop-blur-md border border-white/5 rounded-lg text-center z-10">
+                            <p className="text-[9px] uppercase tracking-wider font-extrabold text-amber-500 leading-none">
+                              {getHumanCountdown(movie.releaseDate)}
+                            </p>
+                            <p className="text-[8px] text-zinc-400 font-mono mt-0.5">
+                              {movie.releaseDate}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 3. EXPLORE TAB */}
+          {activeTab === 'explore' && (
+            <div className="space-y-4.5 animate-fade-in">
+              
+              {/* REAL-TIME SEARCH BAR */}
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-zinc-500" />
+                <input
+                  id="search-media-input"
+                  type="text"
+                  placeholder="Search popular movies and TV shows..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-zinc-900/40 border border-white/5 hover:border-white/10 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 pl-11 pr-10 py-3 rounded-xl text-sm font-medium placeholder-zinc-500 outline-none transition-all"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs font-bold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* SEARCH RESULTS VIEW */}
+              {searchTerm.trim() ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-zinc-400 text-xs pl-1 font-medium">
+                    <TrendingUp className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Search results for &ldquo;{searchTerm}&rdquo;</span>
+                  </div>
+
+                  {searching ? (
+                    <div className="py-20 flex flex-col items-center justify-center gap-3">
+                      <div className="w-8 h-8 border-4 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+                      <span className="text-xs text-zinc-500">Searching TMDB network...</span>
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="py-16 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl flex flex-col items-center gap-2">
+                      <AlertCircle className="w-7 h-7 text-zinc-700" />
+                      <span>No items found. Double check typing, or check TMDB connection.</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                      {searchResults.map(item => {
+                        // Find local version if already tracked to preserve state
+                        const localItem = item.type === 'show'
+                          ? state.shows.find(s => s.id === item.id)
+                          : state.movies.find(m => m.id === item.id);
+                        
+                        return (
+                          <MediaCard
+                            key={`${item.type}-${item.id}`}
+                            item={localItem || item}
+                            onClick={() => {
+                              // Ensure item is tracked in app state so modifications persist
+                              if (!localItem) state.importMediaItem(item);
+                              setSelectedMediaItem(localItem || item);
+                            }}
+                            onToggleWatchlist={(e) => {
+                              e.stopPropagation();
+                              state.toggleWatchlist(item.id, item.type, localItem || item);
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* EXPLORE HOME VIEW */
+                <div className="space-y-5">
+
+                  {/* WATCH HISTORY SECTION */}
+                  {watchHistory && watchHistory.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between pl-1 pr-1">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4.5 h-4.5 text-amber-500 fill-amber-500/25" />
+                          <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                            Watch History
+                          </h3>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 snap-x">
+                        {watchHistory.map((item, idx) => {
+                          const localItem = item.mediaItem;
+                          const dateObj = new Date(item.watchedAt);
+                          const dateStr = dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+                          return (
+                            <div className="w-36 md:w-44 lg:w-52 shrink-0 snap-start relative group" key={`history-${item.id}-${idx}`}>
+                              <MediaCard
+                                item={localItem}
+                                onClick={() => {
+                                  if (!state.shows.find(s => s.id === localItem.id) && !state.movies.find(m => m.id === localItem.id)) {
+                                    state.importMediaItem(localItem);
+                                  }
+                                  setAutoPlayConfig({
+                                    server: item.server,
+                                    externalPlayer: item.externalPlayer,
+                                    seasonNumber: item.seasonNumber,
+                                    episodeNumber: item.episodeNumber,
+                                    streamUrl: item.streamUrl
+                                  });
+                                  setSelectedMediaItem(localItem);
+                                }}
+                                onToggleWatchlist={(e) => {
+                                  e.stopPropagation();
+                                  state.toggleWatchlist(localItem.id, localItem.type, localItem);
+                                }}
+                              />
+                              <div className="absolute top-2 left-2 right-2 bg-black/80 backdrop-blur-md rounded px-2 py-1 flex flex-col pointer-events-none">
+                                <span className="text-[9px] text-amber-500 font-bold uppercase truncate">
+                                  {item.type === 'show' ? `S${item.seasonNumber} E${item.episodeNumber}` : 'Movie'}
+                                </span>
+                                <span className="text-[8px] text-zinc-300 font-mono">
+                                  Watched: {dateStr}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* TRENDING SECTION WITH TIME CONTROL */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between pl-1 pr-1">
+                      <div className="flex items-center gap-2">
+                        <Flame className="w-4.5 h-4.5 text-amber-500 fill-amber-500/25" />
+                        <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                          Trending Content
+                        </h3>
+                      </div>
+                      
+                      {/* Segmented control for Daily vs Weekly */}
+                      <div className="flex bg-zinc-900/60 p-0.5 rounded-lg border border-white/5">
+                        <button
+                          onClick={() => setTrendingTimeframe('day')}
+                          className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                            trendingTimeframe === 'day'
+                              ? 'bg-amber-500 text-zinc-950 shadow-sm font-extrabold'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          Daily
+                        </button>
+                        <button
+                          onClick={() => setTrendingTimeframe('week')}
+                          className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                            trendingTimeframe === 'week'
+                              ? 'bg-amber-500 text-zinc-950 shadow-sm font-extrabold'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          Weekly
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Horizontally scrollable row */}
+                    {(trendingTimeframe === 'day' ? trendingDaily : trendingWeekly).length > 0 ? (
+                      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 snap-x">
+                        {(trendingTimeframe === 'day' ? trendingDaily : trendingWeekly).map(item => {
+                          const localItem = item.type === 'show'
+                            ? state.shows.find(s => s.id === item.id)
+                            : state.movies.find(m => m.id === item.id);
+
+                          return (
+                            <div className="w-36 md:w-44 lg:w-52 shrink-0 snap-start" key={`trending-${item.id}`}>
+                              <MediaCard
+                                item={localItem || item}
+                                onClick={() => {
+                                  if (!localItem) state.importMediaItem(item);
+                                  setSelectedMediaItem(localItem || item);
+                                }}
+                                onToggleWatchlist={(e) => {
+                                  e.stopPropagation();
+                                  state.toggleWatchlist(item.id, item.type, localItem || item);
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="py-6 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl">
+                        No trending items found.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* POPULAR CONTENT SECTION */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between pl-1 pr-1">
+                      <div className="flex items-center gap-2">
+                        <Award className="w-4.5 h-4.5 text-amber-500 fill-amber-500/25" />
+                        <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                          Popular Content
+                        </h3>
+                      </div>
+                      
+                      {/* Segmented control for TV Shows vs Movies */}
+                      <div className="flex bg-zinc-900/60 p-0.5 rounded-lg border border-white/5">
+                        <button
+                          onClick={() => handlePopularTypeSelect('show')}
+                          className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                            popularType === 'show'
+                              ? 'bg-amber-500 text-zinc-950 shadow-sm font-extrabold'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          TV Shows
+                        </button>
+                        <button
+                          onClick={() => handlePopularTypeSelect('movie')}
+                          className={`px-3 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                            popularType === 'movie'
+                              ? 'bg-amber-500 text-zinc-950 shadow-sm font-extrabold'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          Movies
+                        </button>
+                      </div>
+                    </div>
+
+                    {loadingPopular ? (
+                      <div className="py-12 flex items-center justify-center">
+                        <div className="w-5 h-5 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+                      </div>
+                    ) : popularItems.length > 0 ? (
+                      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 snap-x">
+                        {popularItems.map(item => {
+                          const localItem = item.type === 'show'
+                            ? state.shows.find(s => s.id === item.id)
+                            : state.movies.find(m => m.id === item.id);
+
+                          return (
+                            <div className="w-36 md:w-44 lg:w-52 shrink-0 snap-start" key={`popular-${item.id}`}>
+                              <MediaCard
+                                item={localItem || item}
+                                onClick={() => {
+                                  if (!localItem) state.importMediaItem(item);
+                                  setSelectedMediaItem(localItem || item);
+                                }}
+                                onToggleWatchlist={(e) => {
+                                  e.stopPropagation();
+                                  state.toggleWatchlist(item.id, item.type, localItem || item);
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="py-12 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl">
+                        No popular items loaded.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* DISCOVER TYPE SELECTOR (TV Series vs Movies) */}
+                  <div className="space-y-3 pt-1">
+                    <div className="flex items-center justify-between pl-1">
+                      <div className="flex items-center gap-2">
+                        <Compass className="w-4 h-4 text-amber-500" />
+                        <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                          Browse & Discover
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="flex bg-zinc-900/50 border border-white/5 p-1 rounded-xl">
+                      <button
+                        id="discover-type-show"
+                        onClick={() => handleDiscoverTypeSelect('show')}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          discoverType === 'show'
+                            ? 'bg-zinc-850 text-amber-500 shadow-sm font-extrabold'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        TV Shows
+                      </button>
+                      <button
+                        id="discover-type-movie"
+                        onClick={() => handleDiscoverTypeSelect('movie')}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          discoverType === 'movie'
+                            ? 'bg-zinc-850 text-amber-500 shadow-sm font-extrabold'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        Movies
+                      </button>
+                    </div>
+
+                    {/* SORT BY CONTROL */}
+                    <div className="space-y-1.5 pl-1 pt-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                          Sort By:
+                        </span>
+                        <span className="text-[10px] font-mono text-amber-500 font-semibold uppercase">
+                          {sortBy === 'popularity' ? 'Popularity' : sortBy === 'rating' ? 'Rating' : 'Release Date'}
+                        </span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => handleSortSelect('popularity')}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all border cursor-pointer ${
+                            sortBy === 'popularity'
+                              ? 'bg-amber-500 text-black border-amber-500 font-extrabold shadow-sm'
+                              : 'bg-zinc-900/40 hover:bg-zinc-850 text-zinc-400 border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          Popularity
+                        </button>
+                        <button
+                          onClick={() => handleSortSelect('rating')}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all border cursor-pointer ${
+                            sortBy === 'rating'
+                              ? 'bg-amber-500 text-black border-amber-500 font-extrabold shadow-sm'
+                              : 'bg-zinc-900/40 hover:bg-zinc-850 text-zinc-400 border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          Top Rated
+                        </button>
+                        <button
+                          onClick={() => handleSortSelect('year')}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all border cursor-pointer ${
+                            sortBy === 'year'
+                              ? 'bg-amber-500 text-black border-amber-500 font-extrabold shadow-sm'
+                              : 'bg-zinc-900/40 hover:bg-zinc-850 text-zinc-400 border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          Release Year
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PILL GENRE FILTERS */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 pl-1">
+                      <Filter className="w-4 h-4 text-amber-500" />
+                      <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                        Categories & Filters
+                      </h3>
+                    </div>
+
+                    <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                      {genresList.map((g) => (
+                        <button
+                          key={g.name}
+                          id={`genre-pill-${g.name.replace(/\s+/g, '-').toLowerCase()}`}
+                          onClick={() => handleGenreSelect(g.id)}
+                          className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold shrink-0 transition-all border cursor-pointer ${
+                            selectedGenre === g.id
+                              ? 'bg-amber-500 text-black border-amber-500 font-extrabold shadow-md shadow-amber-500/10'
+                              : 'bg-zinc-900/60 hover:bg-zinc-800 text-zinc-400 border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          {g.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* YEAR FILTERS */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 pl-1">
+                      <Calendar className="w-4 h-4 text-amber-500" />
+                      <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                        Release Year
+                      </h3>
+                    </div>
+
+                    <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                      {['All', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2017', '2016', '2015', '2010', '2005', '2000'].map((year) => {
+                        const isSelected = selectedYear === (year === 'All' ? '' : year);
+                        return (
+                          <button
+                            key={year}
+                            id={`year-pill-${year}`}
+                            onClick={() => handleYearSelect(year)}
+                            className={`px-3.5 py-1.5 rounded-full text-[11px] font-bold shrink-0 transition-all border cursor-pointer ${
+                              isSelected
+                                ? 'bg-amber-500 text-black border-amber-500 font-extrabold shadow-md shadow-amber-500/10'
+                                : 'bg-zinc-900/60 hover:bg-zinc-800 text-zinc-400 border-white/5 hover:border-white/10'
+                            }`}
+                          >
+                            {year}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* DISCOVER ENDLESS SCROLL LIST SIMULATION */}
+                  <div className="space-y-3.5">
+                    <div className="flex items-center gap-2 pl-1">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                        {discoverType === 'show' ? 'Discover TV Series' : 'Discover Movies'}
+                      </h3>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                      {discoverItems.map(item => {
+                        const localItem = item.type === 'show'
+                          ? state.shows.find(s => s.id === item.id)
+                          : state.movies.find(m => m.id === item.id);
+
+                        return (
+                          <MediaCard
+                            key={`discover-${item.id}`}
+                            item={localItem || item}
+                            onToggleWatchlist={(e) => {
+                              e.stopPropagation();
+                              state.toggleWatchlist(item.id, item.type, localItem || item);
+                            }}
+                            onClick={() => {
+                              if (!localItem) state.importMediaItem(item);
+                              setSelectedMediaItem(localItem || item);
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {/* Infinite Scroll trigger button */}
+                    <div className="pt-2 flex justify-center">
+                      <button
+                        id="load-more-discover-button"
+                        onClick={handleLoadMoreDiscover}
+                        disabled={loadingDiscover}
+                        className="px-6 py-2.5 bg-[#0A0A0A]/40 hover:bg-zinc-900 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-300 hover:text-white rounded-xl transition-colors w-full cursor-pointer flex justify-center items-center gap-2"
+                      >
+                        {loadingDiscover ? (
+                          <>
+                            <div className="w-3.5 h-3.5 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
+                            <span>Loading next page...</span>
+                          </>
+                        ) : (
+                          <span>Load More {discoverType === 'show' ? 'Series' : 'Movies'}</span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 4. PROFILE TAB */}
+          {activeTab === 'profile' && (
+            <div className="space-y-5 animate-fade-in select-none">
+              
+              {/* USER STATS PROFILE SUMMARY */}
+              <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-4.5 flex flex-col items-center justify-center relative overflow-hidden shadow-md">
+                
+                {/* Background decorative halo */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl" />
+
+                {/* Theme Toggle Button */}
+                <button 
+                  onClick={() => setIsLightMode(!isLightMode)}
+                  className="absolute top-4 right-4 z-20 p-2 bg-[#050505]/80 hover:bg-zinc-800/80 border border-white/5 rounded-full transition-all text-zinc-400 hover:text-amber-500 shadow-lg"
+                  aria-label="Toggle Theme"
+                >
+                  {isLightMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                </button>
+
+                {/* Avatar */}
+                <div className="w-14 h-14 rounded-full bg-amber-500 border border-white/5 shadow-xl flex items-center justify-center shrink-0 z-10 animate-pulse">
+                  <span className="text-xl font-black text-zinc-950 font-display uppercase">U</span>
+                </div>
+                <h3 className="font-display font-bold text-sm text-[#F5F5F5] mt-2.5 z-10">
+                  Active TV Time Member
+                </h3>
+                <p className="text-[10px] font-medium text-zinc-500 font-mono z-10">
+                  ESTABLISHED JULY 2026
+                </p>
+
+                {/* Dynamic Counter panels */}
+                <div className="grid grid-cols-3 gap-2.5 w-full mt-4.5 z-10">
+                  <div className="bg-[#050505]/70 border border-white/5 p-2.5 rounded-xl text-center">
+                    <span className="block font-display font-extrabold text-lg text-amber-500 leading-none">
+                      {state.stats.episodesWatched}
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wide mt-1 block">
+                      Episodes
+                    </span>
+                  </div>
+
+                  <div className="bg-[#050505]/70 border border-white/5 p-2.5 rounded-xl text-center">
+                    <span className="block font-display font-extrabold text-lg text-amber-500 leading-none">
+                      {state.stats.hoursSpent}h
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wide mt-1 block">
+                      Time Spent
+                    </span>
+                  </div>
+
+                  <div className="bg-[#050505]/70 border border-white/5 p-2.5 rounded-xl text-center">
+                    <span className="block font-display font-extrabold text-lg text-amber-500 leading-none">
+                      {state.stats.moviesWatched}
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wide mt-1 block">
+                      Movies
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* SWITCHER FOR FIVE DISTINCT LISTS */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 bg-zinc-900/50 p-1 rounded-xl border border-white/5">
+                  
+                  {/* Option 1: Completed TV Shows */}
+                  <button
+                    id="profile-btn-completed-tv"
+                    onClick={() => setProfileListTab('completed_tv')}
+                    className={`py-2 px-1 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      profileListTab === 'completed_tv'
+                        ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Completed TV
+                  </button>
+
+                  {/* Option 2: Completed Movies */}
+                  <button
+                    id="profile-btn-completed-movies"
+                    onClick={() => setProfileListTab('completed_movies')}
+                    className={`py-2 px-1 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      profileListTab === 'completed_movies'
+                        ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Completed Movies
+                  </button>
+
+                  {/* Option 3: Favorite TV */}
+                  <button
+                    id="profile-btn-fav-tv"
+                    onClick={() => setProfileListTab('fav_tv')}
+                    className={`py-2 px-1 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      profileListTab === 'fav_tv'
+                        ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Favorite TV
+                  </button>
+
+                  {/* Option 4: Favorite Movies */}
+                  <button
+                    id="profile-btn-fav-movies"
+                    onClick={() => setProfileListTab('fav_movies')}
+                    className={`py-2 px-1 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      profileListTab === 'fav_movies'
+                        ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Favorite Movies
+                  </button>
+
+                  {/* Option 5: Stopped Watching */}
+                  <button
+                    id="profile-btn-stopped"
+                    onClick={() => setProfileListTab('stopped_watching')}
+                    className={`py-2 px-1 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer col-span-2 sm:col-span-1 ${
+                      profileListTab === 'stopped_watching'
+                        ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Stopped Watching
+                  </button>
+                </div>
+
+                {/* RENDER DYNAMIC LIST SELECTED */}
+                <div>
+                  
+                  {/* 1. Completed TV Shows */}
+                  {profileListTab === 'completed_tv' && (
+                    <div className="space-y-3">
+                      {state.completedTVShows.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
+                          No completed TV shows yet. Mark all episodes of a series as watched!
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                          {state.completedTVShows.map(show => {
+                            const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                            return (
+                              <MediaCard
+                                  key={show.id}
+                                  item={show}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(show.id, show.type, show);
+                                  }}
+                                onClick={() => setSelectedMediaItem(show)}
+                                watchedEpisodesCount={watched}
+                                totalEpisodesCount={show.episodesCount || 8}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 2. Completed Movies */}
+                  {profileListTab === 'completed_movies' && (
+                    <div className="space-y-3">
+                      {state.completedMovies.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
+                          No completed movies yet. Toggle the checkmark inside movie details to finish them!
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                          {state.completedMovies.map(movie => (
+                            <MediaCard
+                                  key={movie.id}
+                                  item={movie}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(movie.id, movie.type, movie);
+                                  }}
+                              onClick={() => setSelectedMediaItem(movie)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 3. Favorite TV Shows */}
+                  {profileListTab === 'fav_tv' && (
+                    <div className="space-y-3">
+                      {state.favoriteTVShows.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
+                          No favorite TV shows. Add some from their detailed overlay panel!
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                          {state.favoriteTVShows.map(show => {
+                            const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                            return (
+                              <MediaCard
+                                  key={show.id}
+                                  item={show}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(show.id, show.type, show);
+                                  }}
+                                onClick={() => setSelectedMediaItem(show)}
+                                watchedEpisodesCount={watched}
+                                totalEpisodesCount={show.episodesCount || 8}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 4. Favorite Movies */}
+                  {profileListTab === 'fav_movies' && (
+                    <div className="space-y-3">
+                      {state.favoriteMovies.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
+                          No favorite movies. Star them by hitting the Heart icon in movie details!
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                          {state.favoriteMovies.map(movie => (
+                            <MediaCard
+                                  key={movie.id}
+                                  item={movie}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(movie.id, movie.type, movie);
+                                  }}
+                              onClick={() => setSelectedMediaItem(movie)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 5. Stopped Watching TV Shows */}
+                  {profileListTab === 'stopped_watching' && (
+                    <div className="space-y-3">
+                      {state.stoppedWatchingTVShows.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
+                          No stopped watching TV shows. Set a show's status to Stopped from details to list it here!
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                          {state.stoppedWatchingTVShows.map(show => {
+                            const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                            return (
+                              <MediaCard
+                                  key={show.id}
+                                  item={show}
+                                  onToggleWatchlist={(e) => {
+                                    e.stopPropagation();
+                                    state.toggleWatchlist(show.id, show.type, show);
+                                  }}
+                                onClick={() => setSelectedMediaItem(show)}
+                                watchedEpisodesCount={watched}
+                                totalEpisodesCount={show.episodesCount || 8}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
+              </div>
+
+              {/* PRIVACY & PASSCODE LOCK SECTION */}
+              <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-5 space-y-4 shadow-md mt-6 select-none">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10">
+                    <Lock className="w-4.5 h-4.5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                      Master Website Privacy Lock
+                    </h3>
+                    <p className="text-[10px] text-zinc-500">
+                      Restrict website access globally. Anyone visiting this URL will be prompted for this passcode.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-zinc-950/60 rounded-xl border border-white/5">
+                  <div>
+                    <span className="text-xs font-semibold text-zinc-200 block">
+                      Website Access Protection
+                    </span>
+                    <span className="text-[10px] text-zinc-400 block mt-0.5">
+                      {isGlobalLockEnabled && globalPasscode 
+                        ? "Active — Entire website is password-protected globally" 
+                        : "Inactive — Website is public and open to anyone with the URL"}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {isGlobalLockEnabled && globalPasscode ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            setPasscodeModalMode('change');
+                            setShowPasscodeModal(true);
+                          }}
+                          className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-300 hover:text-white rounded-lg transition-all cursor-pointer"
+                        >
+                          Change Passcode
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPasscodeModalMode('disable');
+                            setShowPasscodeModal(true);
+                          }}
+                          className="px-3.5 py-1.5 bg-red-950/30 hover:bg-red-900/40 border border-red-500/15 hover:border-red-500/30 text-xs font-bold text-red-400 rounded-lg transition-all cursor-pointer"
+                        >
+                          Disable Lock
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setPasscodeModalMode('setup');
+                          setShowPasscodeModal(true);
+                        }}
+                        className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-extrabold rounded-lg transition-all cursor-pointer shadow-md shadow-amber-500/15"
+                      >
+                        Enable Lock
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* API CONFIGURATION SECTION */}
+              <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-5 space-y-4 shadow-md mt-6 select-none">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10">
+                    <Key className="w-4.5 h-4.5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                      API Configuration
+                    </h3>
+                    <p className="text-[10px] text-zinc-500">
+                      Optionally provide your own TMDb and Trakt API keys. Leave blank to use default keys.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-200 block">TMDb API Key (v3 auth)</label>
+                    <input
+                      type="text"
+                      value={customTmdbKey}
+                      onChange={(e) => setCustomTmdbKey(e.target.value)}
+                      placeholder="e.g. 92cb9e28d..."
+                      className="w-full bg-zinc-950/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-200 block">Trakt Client ID</label>
+                    <input
+                      type="text"
+                      value={customTraktKey}
+                      onChange={(e) => setCustomTraktKey(e.target.value)}
+                      placeholder="e.g. e52812225..."
+                      className="w-full bg-zinc-950/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500/50 transition-colors"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleSaveApiKeys}
+                      className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-300 hover:text-white rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                    >
+                      <span>Save API Keys</span>
+                    </button>
+                    {apiKeysSavedMessage && (
+                      <span className="text-emerald-400 text-[10px] font-bold flex items-center gap-1 animate-fade-in">
+                        <Check className="w-3.5 h-3.5" /> Saved! Reloading...
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* DATA BACKUP & RESTORE SECTION */}
+              <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-5 space-y-4 shadow-md mt-6 select-none">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10">
+                    <Download className="w-4.5 h-4.5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider">
+                      Backup & Restore
+                    </h3>
+                    <p className="text-[10px] text-zinc-500">
+                      Export your local watchlist, custom ratings, and watch history, or restore them from a previous backup file.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Export */}
+                  <div className="p-4 bg-zinc-950/60 rounded-xl border border-white/5 flex flex-col justify-between gap-4">
+                    <div>
+                      <span className="text-xs font-semibold text-zinc-200 block">
+                        Export Data Backup
+                      </span>
+                      <span className="text-[10px] text-zinc-400 block mt-0.5">
+                        Download your current database (shows, movies, episodes watched, and favorites) as a portable JSON file.
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleExportFile}
+                      className="w-full px-4 py-2 bg-zinc-900 hover:bg-zinc-800 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-300 hover:text-white rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Export Data (.json)</span>
+                    </button>
+                  </div>
+
+                  {/* Import */}
+                  <div className="p-4 bg-zinc-950/60 rounded-xl border border-white/5 flex flex-col justify-between gap-4">
+                    <div>
+                      <span className="text-xs font-semibold text-zinc-200 block">
+                        Import Data Backup
+                      </span>
+                      <span className="text-[10px] text-zinc-400 block mt-0.5">
+                        Restore your progress from a previously downloaded JSON backup file. This will replace your current watchlist and stats.
+                      </span>
+                    </div>
+                    <label className="w-full px-4 py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 text-center">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Import Data (.json)</span>
+                      <input
+                        type="file"
+                        accept=".json"
+                        className="hidden"
+                        onChange={handleImportFile}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {importSuccess && (
+                  <div className="p-2.5 bg-emerald-950/30 border border-emerald-500/15 rounded-lg flex items-center gap-2 text-[10px] text-emerald-400 animate-fade-in">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Watchlist, ratings, and stats have been imported successfully!</span>
+                  </div>
+                )}
+
+                {importError && (
+                  <div className="p-2.5 bg-red-950/30 border border-red-500/15 rounded-lg flex items-center gap-2 text-[10px] text-red-400 animate-fade-in">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                    <span>{importError}</span>
+                  </div>
+                )}
+              </div>
+
+
+              {/* CLOUD SYNC SECTION */}
+              <div className="bg-[#0A0A0A] border border-white/5 rounded-2xl p-5 sm:p-6 mb-8 flex flex-col gap-4 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-cyan-500/20 via-cyan-500/5 to-transparent"></div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+                      <Cloud className="w-4 h-4 text-cyan-400" />
+                      Cloud Sync Device ID
+                    </h2>
+                    <p className="text-xs text-zinc-400 mt-1 max-w-[400px]">
+                      Your data is automatically synced to the cloud using this unique device ID. 
+                      You can use this ID on another device to restore your data.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center mt-2">
+                  <div className="flex-1 bg-zinc-950/80 border border-white/10 rounded-xl px-4 py-3 flex items-center font-mono text-sm text-cyan-200">
+                    {isEditingSyncId ? (
+                      <input 
+                        type="text" 
+                        value={syncIdInput}
+                        onChange={(e) => setSyncIdInput(e.target.value)}
+                        placeholder="Enter Device ID"
+                        className="bg-transparent border-none outline-none w-full text-cyan-200"
+                        autoFocus
+                      />
+                    ) : (
+                      getDeviceId()
+                    )}
+                  </div>
+                  
+                  {isEditingSyncId ? (
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          if (syncIdInput.trim()) {
+                            setDeviceId(syncIdInput.trim());
+                            window.location.reload();
+                          }
+                        }}
+                        className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 px-4 py-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap"
+                      >
+                        Apply & Reload
+                      </button>
+                      <button 
+                        onClick={() => setIsEditingSyncId(false)}
+                        className="bg-white/5 hover:bg-white/10 text-zinc-300 px-4 py-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={() => {
+                        setSyncIdInput(getDeviceId());
+                        setIsEditingSyncId(true);
+                      }}
+                      className="bg-white/5 hover:bg-white/10 text-zinc-300 px-4 py-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap"
+                    >
+                      Change ID
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* DANGER ZONE / RESET SECTION */}
+
+              <div className="bg-red-950/10 border border-red-500/10 rounded-2xl p-5 space-y-4 shadow-md mt-6 select-none">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-red-500/10 animate-pulse">
+                    <AlertTriangle className="w-4.5 h-4.5 text-red-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-red-400 uppercase tracking-wider">
+                      Danger Zone
+                    </h3>
+                    <p className="text-[10px] text-zinc-500">
+                      Irreversible actions. Be absolutely certain before proceeding.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-red-950/5 rounded-xl border border-red-500/10 space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-semibold text-zinc-200 block">
+                        Reset All Progress & Stats
+                      </span>
+                      <span className="text-[10px] text-zinc-400 block mt-0.5 max-w-sm">
+                        This will reset your watched episodes count, watched movies, custom ratings, and favorites back to zero.
+                      </span>
+                    </div>
+
+                    {!showResetConfirm ? (
+                      <button
+                        id="danger-zone-reset-button"
+                        onClick={() => setShowResetConfirm(true)}
+                        className="px-3.5 py-1.5 bg-red-950/40 hover:bg-red-900/50 border border-red-500/20 hover:border-red-500/40 text-xs font-bold text-red-400 rounded-lg transition-all cursor-pointer shadow-sm shrink-0"
+                      >
+                        Reset Everything to Zero
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => {
+                            state.resetAllProgress();
+                            setShowResetConfirm(false);
+                            setResetSuccessMessage(true);
+                            setTimeout(() => setResetSuccessMessage(false), 3000);
+                          }}
+                          className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-zinc-950 text-xs font-extrabold rounded-lg transition-all cursor-pointer shadow-md shadow-red-500/20"
+                        >
+                          Confirm Reset
+                        </button>
+                        <button
+                          onClick={() => setShowResetConfirm(false)}
+                          className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-400 hover:text-white rounded-lg transition-all cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {resetSuccessMessage && (
+                    <div className="p-2.5 bg-emerald-950/30 border border-emerald-500/15 rounded-lg flex items-center gap-2 text-[10px] text-emerald-400 animate-fade-in">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>All statistics, ratings, favorites, and watch history have been successfully reset to zero!</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+        </main>
+
+        {/* BOTTOM NAVIGATION BAR */}
+        <Navbar activeTab={activeTab} onChangeTab={setActiveTab} />
+
+        {/* DETAILED OVERLAY MODAL */}
+        <AnimatePresence>
+          {currentModalItem && (
+            <DetailModal
+              item={currentModalItem}
+              autoPlayConfig={autoPlayConfig}
+              onClose={() => {
+                setSelectedMediaItem(null);
+                setAutoPlayConfig(null);
+              }}
+              favorites={state.favorites}
+              watchedEpisodes={state.watchedEpisodes}
+              toggleWatchlist={state.toggleWatchlist}
+              toggleFavorite={state.toggleFavorite}
+              setRating={state.setRating}
+              toggleMovieWatched={state.toggleMovieWatched}
+              toggleEpisodeWatched={state.toggleEpisodeWatched}
+              toggleShowCompleted={state.toggleShowCompleted}
+              toggleSeasonCompleted={state.toggleSeasonCompleted}
+              toggleStoppedWatching={state.toggleStoppedWatching}
+              importMediaItem={state.importMediaItem}
+            />
+          )}
+        </AnimatePresence>
+
+        
+        {/* PASSCODE CONTROL MODAL */}
+        {showPasscodeModal && (
+          <PasscodeScreen
+            mode={passcodeModalMode}
+            correctPasscode={globalPasscode}
+            onSuccess={(newCode) => {
+              if (passcodeModalMode === 'setup' || passcodeModalMode === 'change') {
+                updateGlobalSecurity(newCode || null);
+              } else if (passcodeModalMode === 'disable') {
+                updateGlobalSecurity(null);
+              }
+              setShowPasscodeModal(false);
+            }}
+            onCancel={() => setShowPasscodeModal(false)}
+          />
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// Custom simple fallback SVG wrapper components to support pristine execution
+function PlusIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </svg>
+  );
+}

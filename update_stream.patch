@@ -1,0 +1,7 @@
+--- src/components/DetailModal.tsx
++++ src/components/DetailModal.tsx
+@@ -723,3 +723,3 @@
+   const formatFlussonicTitle = (title: string) => {
+     const titleWithAnd = title.replace(/&/g, ' And ');
+     return titleWithAnd.replace(/[^a-zA-Z0-9\s]/g, '').split(/\s+/).filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join('');
+   };
