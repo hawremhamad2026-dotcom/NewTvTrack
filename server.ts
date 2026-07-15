@@ -9,6 +9,10 @@ import tls from "tls";
 import { GoogleGenAI, Type } from "@google/genai";
 import { SeedrClient } from "./src/lib/seedrService.js";
 import { loadDb, saveDb } from "./src/db/jsonDb.js";
+import { getDb, initDb, getUsePostgres } from "./src/db/index.js";
+import { userProfiles, mediaItems, watchedEpisodes } from "./src/db/schema.js";
+import { eq, and } from "drizzle-orm";
+
 const localDb = loadDb();
 
 
@@ -35,6 +39,9 @@ function getGeminiClient(): GoogleGenAI {
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  
+  // Initialize the database connection (Supabase or fallback JSON)
+  await initDb();
   
   app.use(express.json());
 
@@ -746,12 +753,19 @@ async function startServer() {
     
     // Ensure profile exists
     try {
-      if (!localDb.profiles.includes(deviceId)) {
-        localDb.profiles.push(deviceId);
-        saveDb(localDb);
+      if (getUsePostgres()) {
+        const db = getDb();
+        await db.insert(userProfiles)
+          .values({ id: deviceId })
+          .onConflictDoNothing();
+      } else {
+        if (!localDb.profiles.includes(deviceId)) {
+          localDb.profiles.push(deviceId);
+          saveDb(localDb);
+        }
       }
     } catch (e) {
-      console.error(e);
+      console.error('[authMiddleware] Profile check error:', e);
     }
     next();
   };
@@ -761,8 +775,17 @@ async function startServer() {
     const deviceId = (req as any).deviceId;
     
     try {
-      const items = localDb.mediaItems.filter(i => i.userId === deviceId);
-      const eps = localDb.watchedEpisodes.filter(e => e.userId === deviceId);
+      let items: any[] = [];
+      let eps: any[] = [];
+      
+      if (getUsePostgres()) {
+        const db = getDb();
+        items = await db.select().from(mediaItems).where(eq(mediaItems.userId, deviceId));
+        eps = await db.select().from(watchedEpisodes).where(eq(watchedEpisodes.userId, deviceId));
+      } else {
+        items = localDb.mediaItems.filter(i => i.userId === deviceId);
+        eps = localDb.watchedEpisodes.filter(e => e.userId === deviceId);
+      }
       
       const shows = items.filter(i => i.type === 'show').map(i => ({ ...i, id: i.mediaId, rating: parseFloat(i.rating || '0') }));
       const movies = items.filter(i => i.type === 'movie').map(i => ({ ...i, id: i.mediaId, rating: parseFloat(i.rating || '0') }));
@@ -794,10 +817,6 @@ async function startServer() {
     const { shows, movies, watchedEpisodes: watchedEpsData, favorites } = req.body;
     
     try {
-      // Clear existing
-      localDb.mediaItems = localDb.mediaItems.filter(i => i.userId !== deviceId);
-      localDb.watchedEpisodes = localDb.watchedEpisodes.filter(e => e.userId !== deviceId);
-      
       const allItems: any[] = [];
       const uniqueShows = shows && Array.isArray(shows) ? Array.from(new Map(shows.map((s: any) => [s.id, s])).values()) : [];
       if (uniqueShows.length > 0) {
@@ -864,10 +883,6 @@ async function startServer() {
          });
       }
       
-      if (allItems.length > 0) {
-        localDb.mediaItems.push(...allItems);
-      }
-      
       // Update watched episodes
       const epsToInsert: any[] = [];
       if (watchedEpsData && typeof watchedEpsData === 'object') {
@@ -888,11 +903,37 @@ async function startServer() {
            }
          });
       }
-      if (epsToInsert.length > 0) {
-        localDb.watchedEpisodes.push(...epsToInsert);
+
+      if (getUsePostgres()) {
+        const db = getDb();
+        await db.transaction(async (tx: any) => {
+          await tx.delete(mediaItems).where(eq(mediaItems.userId, deviceId));
+          await tx.delete(watchedEpisodes).where(eq(watchedEpisodes.userId, deviceId));
+          
+          if (allItems.length > 0) {
+            await tx.insert(mediaItems).values(allItems);
+          }
+          
+          if (epsToInsert.length > 0) {
+            await tx.insert(watchedEpisodes).values(epsToInsert);
+          }
+        });
+      } else {
+        // Clear existing
+        localDb.mediaItems = localDb.mediaItems.filter(i => i.userId !== deviceId);
+        localDb.watchedEpisodes = localDb.watchedEpisodes.filter(e => e.userId !== deviceId);
+        
+        if (allItems.length > 0) {
+          localDb.mediaItems.push(...allItems);
+        }
+        
+        if (epsToInsert.length > 0) {
+          localDb.watchedEpisodes.push(...epsToInsert);
+        }
+        
+        saveDb(localDb);
       }
       
-      saveDb(localDb);
       res.json({ success: true });
     } catch (error) {
       console.error('Error saving state:', error);
@@ -906,8 +947,6 @@ async function startServer() {
     const { media } = req.body; // should pass { media: MediaItem }
     
     try {
-      const idx = localDb.mediaItems.findIndex(i => i.userId === deviceId && i.mediaId === media.id);
-      
       const itemData = {
         userId: deviceId,
         mediaId: media.id,
@@ -932,13 +971,28 @@ async function startServer() {
         imdbId: media.imdbId
       };
 
-      if (idx !== -1) {
-        localDb.mediaItems[idx] = itemData;
+      if (getUsePostgres()) {
+        const db = getDb();
+        const existing = await db.select().from(mediaItems)
+          .where(and(eq(mediaItems.userId, deviceId), eq(mediaItems.mediaId, media.id)));
+          
+        if (existing.length > 0) {
+          await db.update(mediaItems)
+            .set(itemData)
+            .where(eq(mediaItems.id, existing[0].id));
+        } else {
+          await db.insert(mediaItems).values(itemData);
+        }
       } else {
-        localDb.mediaItems.push(itemData);
+        const idx = localDb.mediaItems.findIndex(i => i.userId === deviceId && i.mediaId === media.id);
+        if (idx !== -1) {
+          localDb.mediaItems[idx] = itemData;
+        } else {
+          localDb.mediaItems.push(itemData);
+        }
+        saveDb(localDb);
       }
       
-      saveDb(localDb);
       res.json({ success: true });
     } catch (error) {
       console.error('Error saving media:', error);
@@ -952,19 +1006,38 @@ async function startServer() {
     const { showId, episodeKey, watched } = req.body;
     
     try {
-      // Remove first to prevent duplicate
-      localDb.watchedEpisodes = localDb.watchedEpisodes.filter(e => !(e.userId === deviceId && e.showId === showId && e.episodeKey === episodeKey));
-      
-      if (watched) {
-        localDb.watchedEpisodes.push({
-          userId: deviceId,
-          showId: showId,
-          episodeKey: episodeKey,
-          watchedAt: new Date().toISOString()
-        });
+      if (getUsePostgres()) {
+        const db = getDb();
+        await db.delete(watchedEpisodes)
+          .where(and(
+            eq(watchedEpisodes.userId, deviceId), 
+            eq(watchedEpisodes.showId, showId), 
+            eq(watchedEpisodes.episodeKey, episodeKey)
+          ));
+          
+        if (watched) {
+          await db.insert(watchedEpisodes).values({
+            userId: deviceId,
+            showId: showId,
+            episodeKey: episodeKey,
+            watchedAt: new Date().toISOString()
+          });
+        }
+      } else {
+        // Remove first to prevent duplicate
+        localDb.watchedEpisodes = localDb.watchedEpisodes.filter(e => !(e.userId === deviceId && e.showId === showId && e.episodeKey === episodeKey));
+        
+        if (watched) {
+          localDb.watchedEpisodes.push({
+            userId: deviceId,
+            showId: showId,
+            episodeKey: episodeKey,
+            watchedAt: new Date().toISOString()
+          });
+        }
+        saveDb(localDb);
       }
       
-      saveDb(localDb);
       res.json({ success: true });
     } catch (error) {
       console.error('Error toggling episode:', error);
@@ -976,9 +1049,15 @@ async function startServer() {
   app.post("/api/reset", authMiddleware, async (req: express.Request, res: express.Response): Promise<any> => {
     const deviceId = (req as any).deviceId;
     try {
-      localDb.mediaItems = localDb.mediaItems.filter(i => i.userId !== deviceId);
-      localDb.watchedEpisodes = localDb.watchedEpisodes.filter(e => e.userId !== deviceId);
-      saveDb(localDb);
+      if (getUsePostgres()) {
+        const db = getDb();
+        await db.delete(mediaItems).where(eq(mediaItems.userId, deviceId));
+        await db.delete(watchedEpisodes).where(eq(watchedEpisodes.userId, deviceId));
+      } else {
+        localDb.mediaItems = localDb.mediaItems.filter(i => i.userId !== deviceId);
+        localDb.watchedEpisodes = localDb.watchedEpisodes.filter(e => e.userId !== deviceId);
+        saveDb(localDb);
+      }
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Internal server error' });
