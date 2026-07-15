@@ -1,29 +1,31 @@
-# Use the official Bun image
-FROM oven/bun:1 as base
+# Use official Node.js light image
+FROM node:20-slim AS base
 WORKDIR /usr/src/app
 
-# Install dependencies
+# Install dependencies (only copy package.json first to cache layer)
 FROM base AS install
-RUN mkdir -p /temp/prod
-COPY package.json bun.lock /temp/prod/
-RUN cd /temp/prod && bun install --frozen-lockfile
+COPY package.json package-lock.json* ./
+RUN npm install
 
-# Copy dependencies and source code
-FROM base AS prerelease
-COPY --from=install /temp/prod/node_modules node_modules
+# Build stage
+FROM base AS build
+COPY --from=install /usr/src/app/node_modules ./node_modules
 COPY . .
-
-# Build the frontend (Vite)
 ENV NODE_ENV=production
-RUN bun run build
+RUN npm run build
 
-# Run stage
-FROM base AS release
-COPY --from=install /temp/prod/node_modules node_modules
-COPY --from=prerelease /usr/src/app .
+# Production runtime stage
+FROM node:20-slim AS release
+WORKDIR /usr/src/app
 
-# Expose the port your server listens on (defaulting to 3000)
+# Copy production node_modules and built output
+COPY --from=install /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app/dist ./dist
+COPY package.json ./
+
+# Expose port 3000 (which is the hardcoded entry point)
 EXPOSE 3000
 
-# Start the server.ts backend
-CMD [ "bun", "run", "server.ts" ]
+# Start command
+ENV NODE_ENV=production
+CMD [ "npm", "start" ]
