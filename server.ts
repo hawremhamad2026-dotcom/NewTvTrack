@@ -888,6 +888,7 @@ async function startServer() {
       if (watchedEpsData && typeof watchedEpsData === 'object') {
          Object.keys(watchedEpsData).forEach(showIdStr => {
            const showId = Number(showIdStr);
+           if (isNaN(showId) || showId <= 0) return;
            const eps = watchedEpsData[showId];
            if (eps && typeof eps === 'object') {
              Object.keys(eps).forEach(epKey => {

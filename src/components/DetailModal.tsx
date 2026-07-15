@@ -25,8 +25,8 @@ interface DetailModalProps {
   favorites: number[];
   watchedEpisodes: Record<number, Record<string, boolean>>;
   toggleWatchlist: (id: number, type: MediaType, fullItem?: MediaItem) => void;
-  toggleFavorite: (id: number) => void;
-  setRating: (id: number, type: MediaType, rating: number | null) => void;
+  toggleFavorite: (id: number, type?: MediaType, fullItem?: MediaItem) => void;
+  setRating: (id: number, type: MediaType, rating: number | null, fullItem?: MediaItem) => void;
   toggleMovieWatched: (movieId: number, fullItem?: MediaItem) => void;
   toggleEpisodeWatched: (showId: number, seasonNum: number, episodeNum: number, totalEpisodesInShow: number, fullItem?: MediaItem) => void;
   toggleShowCompleted: (showId: number, seasons: Season[], forceComplete?: boolean, fullItem?: MediaItem) => void;
@@ -1864,7 +1864,7 @@ export function DetailModal({
 
   const handleRatingClick = (stars: number) => {
     const nextRating = item.userRating === stars ? null : stars;
-    setRating(item.id, item.type, nextRating);
+    setRating(item.id, item.type, nextRating, item);
     triggerToast(nextRating ? `Rated ${nextRating} Stars` : 'Rating Cleared');
   };
 
@@ -3182,7 +3182,7 @@ export function DetailModal({
                 <button
                   id="action-toggle-favorite"
                   onClick={() => {
-                    toggleFavorite(item.id);
+                    toggleFavorite(item.id, item.type, item);
                     triggerToast(!favorites.includes(item.id) ? 'Added to Favorites' : 'Removed from Favorites');
                   }}
                   className={`flex flex-col items-center justify-center py-2.5 rounded-lg transition-all cursor-pointer ${

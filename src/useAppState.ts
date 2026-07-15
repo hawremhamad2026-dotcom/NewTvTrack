@@ -64,7 +64,34 @@ export function getInitialState(): SavedState {
   return getDefaultState();
 }
 
+export function pruneInactiveState(prev: SavedState): SavedState {
+  const activeShows = (prev.shows || []).filter(s => {
+    const hasWatchedEpisodes = prev.watchedEpisodes && prev.watchedEpisodes[s.id] && Object.keys(prev.watchedEpisodes[s.id]).length > 0;
+    const isFavorite = (prev.favorites || []).includes(s.id) || s.isFavorite;
+    return s.inWatchlist || isFavorite || s.userRating !== null || s.completed || s.stoppedWatching || hasWatchedEpisodes;
+  });
 
+  const activeMovies = (prev.movies || []).filter(m => {
+    const isFavorite = (prev.favorites || []).includes(m.id) || m.isFavorite;
+    return m.inWatchlist || isFavorite || m.userRating !== null || m.completed;
+  });
+
+  // Ensure favorites array only contains active items
+  const activeFavorites = (prev.favorites || []).filter(id => {
+    const show = activeShows.find(s => s.id === id);
+    if (show) return true;
+    const movie = activeMovies.find(m => m.id === id);
+    if (movie) return true;
+    return false;
+  });
+
+  return {
+    ...prev,
+    shows: activeShows,
+    movies: activeMovies,
+    favorites: activeFavorites
+  };
+}
 
 export function useAppState() {
   const deviceIdRef = useRef<string>(getDeviceId());
@@ -107,8 +134,12 @@ export function useAppState() {
   const saveState = useCallback(async (currentState: SavedState, isUnloading = false) => {
     try {
       const deviceId = deviceIdRef.current;
+      
+      // Safety prune to ensure inactive data is completely kept off our database
+      const pruned = pruneInactiveState(currentState);
+      
       // Strip seasons from shows to prevent huge payloads exceeding browser keepalive limit (64KB)
-      const strippedShows = currentState.shows.map(({ seasons, ...s }) => s);
+      const strippedShows = pruned.shows.map(({ seasons, ...s }) => s);
       
       const fetchOptions: RequestInit = {
         method: 'POST',
@@ -118,9 +149,9 @@ export function useAppState() {
         },
         body: JSON.stringify({
           shows: strippedShows,
-          movies: currentState.movies,
-          watchedEpisodes: currentState.watchedEpisodes,
-          favorites: currentState.favorites
+          movies: pruned.movies,
+          watchedEpisodes: pruned.watchedEpisodes,
+          favorites: pruned.favorites
         })
       };
 
@@ -163,8 +194,9 @@ export function useAppState() {
   ) => {
     setRawState(prev => {
       const resolved = typeof value === 'function' ? value(prev) : value;
+      const pruned = pruneInactiveState(resolved);
       return {
-        ...resolved,
+        ...pruned,
         updatedAt: Date.now()
       };
     });
@@ -172,7 +204,8 @@ export function useAppState() {
 
   const exportState = () => {
     try {
-      const dataStr = JSON.stringify(state, null, 2);
+      const pruned = pruneInactiveState(state);
+      const dataStr = JSON.stringify(pruned, null, 2);
       const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
       const filename = `tv_movie_tracker_backup_${new Date().toISOString().slice(0, 10)}.json`;
       
@@ -282,16 +315,33 @@ export function useAppState() {
     });
   };
 
-  const toggleFavorite = (id: number) => {
+  const toggleFavorite = (id: number, type?: MediaType, fullItem?: MediaItem) => {
     setState(prev => {
       const isFav = prev.favorites.includes(id);
       const updatedFavorites = isFav
         ? prev.favorites.filter(favId => favId !== id)
         : [...prev.favorites, id];
       
-      // Sync in shows/movies arrays for easy local binding
-      const updatedShows = prev.shows.map(s => s.id === id ? { ...s, isFavorite: !isFav } : s);
-      const updatedMovies = prev.movies.map(m => m.id === id ? { ...m, isFavorite: !isFav } : m);
+      let updatedShows = prev.shows;
+      let updatedMovies = prev.movies;
+
+      const itemType = type || (prev.shows.some(s => s.id === id) ? 'show' : 'movie');
+
+      if (itemType === 'show') {
+        const exists = prev.shows.some(s => s.id === id);
+        if (exists) {
+          updatedShows = prev.shows.map(s => s.id === id ? { ...s, isFavorite: !isFav } : s);
+        } else if (fullItem) {
+          updatedShows = [...prev.shows, { ...fullItem, isFavorite: !isFav }];
+        }
+      } else {
+        const exists = prev.movies.some(m => m.id === id);
+        if (exists) {
+          updatedMovies = prev.movies.map(m => m.id === id ? { ...m, isFavorite: !isFav } : m);
+        } else if (fullItem) {
+          updatedMovies = [...prev.movies, { ...fullItem, isFavorite: !isFav }];
+        }
+      }
 
       return {
         ...prev,
@@ -302,17 +352,35 @@ export function useAppState() {
     });
   };
 
-  const setRating = (id: number, type: MediaType, rating: number | null) => {
+  const setRating = (id: number, type: MediaType, rating: number | null, fullItem?: MediaItem) => {
     setState(prev => {
       if (type === 'show') {
+        const exists = prev.shows.some(s => s.id === id);
+        let updatedShows;
+        if (exists) {
+          updatedShows = prev.shows.map(s => s.id === id ? { ...s, userRating: rating } : s);
+        } else if (fullItem) {
+          updatedShows = [...prev.shows, { ...fullItem, userRating: rating }];
+        } else {
+          updatedShows = prev.shows;
+        }
         return {
           ...prev,
-          shows: prev.shows.map(s => s.id === id ? { ...s, userRating: rating } : s),
+          shows: updatedShows,
         };
       } else {
+        const exists = prev.movies.some(m => m.id === id);
+        let updatedMovies;
+        if (exists) {
+          updatedMovies = prev.movies.map(m => m.id === id ? { ...m, userRating: rating } : m);
+        } else if (fullItem) {
+          updatedMovies = [...prev.movies, { ...fullItem, userRating: rating }];
+        } else {
+          updatedMovies = prev.movies;
+        }
         return {
           ...prev,
-          movies: prev.movies.map(m => m.id === id ? { ...m, userRating: rating } : m),
+          movies: updatedMovies,
         };
       }
     });
