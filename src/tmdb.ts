@@ -572,4 +572,68 @@ export async function fetchTraktComments(
   }
 }
 
+export async function fetchTraktList(
+  mediaType: MediaType,
+  listType: 'trending' | 'boxoffice' | 'popular' | 'favorited' | 'played' | 'watched' | 'anticipated',
+  page: number = 1,
+  limit: number = 20,
+  year?: string,
+  genre?: string
+): Promise<MediaItem[]> {
+  const traktType = mediaType === 'show' ? 'shows' : 'movies';
+  
+  if (listType === 'boxoffice' && mediaType === 'show') {
+    return []; // No boxoffice for TV shows
+  }
+
+  let url = `https://api.trakt.tv/${traktType}/${listType}?page=${page}&limit=${limit}&extended=full`;
+  
+  if (year) url += `&years=${year}`;
+  if (genre) url += `&genres=${genre}`;
+  
+  const clientID = getTraktClientId();
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'trakt-api-version': '2',
+        'trakt-api-key': clientID
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Trakt API request failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.map((item: any) => {
+      const raw = item[mediaType] || item; // item.show, item.movie, or just item
+      return transformTraktMedia(raw, mediaType);
+    });
+  } catch (error) {
+    console.error(`Error fetching Trakt ${listType} for ${mediaType}:`, error);
+    return [];
+  }
+}
+
+export function transformTraktMedia(raw: any, type: MediaType): MediaItem {
+  return {
+    id: raw.ids?.tmdb || raw.ids?.trakt, // Use tmdb id as primary if available, fallback to trakt id
+    type,
+    title: raw.title || 'Untitled',
+    posterPath: raw.images?.poster?.[0] ? `https://${raw.images.poster[0]}` : '',
+    backdropPath: raw.images?.fanart?.[0] ? `https://${raw.images.fanart[0]}` : '',
+    overview: raw.overview || 'No description available.',
+    rating: raw.rating ? Number((raw.rating).toFixed(1)) : 0,
+    releaseDate: raw.released || raw.first_aired || '',
+    genres: raw.genres || [],
+    trailerUrl: raw.trailer || null,
+    tmdbId: raw.ids?.tmdb,
+    imdbId: raw.ids?.imdb,
+    runtime: raw.runtime || 0,
+    status: raw.status || 'Unknown',
+  };
+}
+
 
