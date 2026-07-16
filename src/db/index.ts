@@ -2,6 +2,15 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import pkg from 'pg';
 const { Pool } = pkg;
 import * as schema from './schema.js';
+import dns from 'node:dns';
+
+// Force Node.js to resolve IPv4 addresses first.
+// By default, modern Node.js versions (v17+) match OS resolution, which often prioritizes IPv6.
+// In cloud environments like Google Cloud Run, outbound IPv6 is not configured/supported by default.
+// If Supabase resolves to an IPv6 address first, the connection will hang and time out.
+if (dns && typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -42,7 +51,9 @@ export async function initDb() {
       ssl: connectionString.includes('supabase.co') || connectionString.includes('supabase.com') || connectionString.includes('pooler') 
         ? { rejectUnauthorized: false } 
         : undefined,
-      connectionTimeoutMillis: 8000, // 8s timeout
+      connectionTimeoutMillis: 15000, // 15s timeout
+      max: 5, // Keep connection count lightweight for serverless / transaction poolers
+      idleTimeoutMillis: 30000, // Close idle clients after 30s
     });
 
     // Test the connection

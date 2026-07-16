@@ -2366,12 +2366,23 @@ export default function App() {
                     </div>
 
                     {!dbStatus.usePostgres && dbStatus.hasConnectionString && dbStatus.lastDbError && (
-                      <div className="bg-red-950/20 border border-red-500/10 p-3.5 rounded-xl space-y-1 text-red-400 font-mono text-[11px] animate-fade-in">
+                      <div className="bg-red-950/20 border border-red-500/10 p-4 rounded-xl space-y-2.5 text-red-400 font-mono text-[11px] animate-fade-in">
                         <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Latest Error Log:</span>
                         <p className="leading-relaxed break-words">{dbStatus.lastDbError}</p>
-                        <p className="text-[9px] text-zinc-500 mt-2">
-                          💡 Tip: Ensure your database allows traffic from external networks and credentials are 100% correct.
-                        </p>
+                        <div className="text-[10px] text-zinc-400 mt-2 space-y-1.5 font-sans leading-relaxed">
+                          <p className="font-bold text-amber-500 flex items-center gap-1">💡 Cloud Run Outgoing Connection Troubleshooter:</p>
+                          <ul className="list-disc pl-4 space-y-1 text-zinc-500 font-medium">
+                            <li>
+                              <strong className="text-zinc-300">Serverless VPC Egress (Most Common):</strong> If your Cloud Run service uses a <em className="text-zinc-400">Serverless VPC Access Connector</em>, make sure that VPC network is configured with a <strong className="text-zinc-300">Cloud NAT</strong> to allow outbound internet egress on port <em className="text-zinc-400">6543</em>. Alternatively, in your Cloud Run settings, set the egress configuration to <strong className="text-zinc-300">"Route only traffic to private IPs through the VPC connector"</strong> rather than routing all traffic.
+                            </li>
+                            <li>
+                              <strong className="text-zinc-300">Supabase Firewall Settings:</strong> Go to your Supabase Dashboard, select your project, go to <strong className="text-zinc-300">Settings &gt; API</strong> or <strong className="text-zinc-300">Database</strong>, and verify if <em className="text-zinc-400">Network Restrictions</em> are enabled. If enabled, it blocks dynamic public IPs (such as Cloud Run containers) unless you whitelist them or use a static NAT IP.
+                            </li>
+                            <li>
+                              <strong className="text-zinc-300">Timeout/Latency:</strong> Since your Supabase instance is hosted in <em className="text-zinc-400">ap-southeast-1</em> (Singapore) and Cloud Run is deployed in <em className="text-zinc-400">europe-west1</em> (Belgium), high packet latency can trigger timeouts. We have boosted the query pool timeout limit to 15 seconds to alleviate latency drops.
+                            </li>
+                          </ul>
+                        </div>
                       </div>
                     )}
                   </div>
