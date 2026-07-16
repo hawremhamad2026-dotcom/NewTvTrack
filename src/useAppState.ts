@@ -230,6 +230,63 @@ export function useAppState() {
     });
   };
 
+  // Background pre-fetch details (including cast/directors) for all active shows and movies that are missing them
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+    const activeShows = state.shows.filter(s => !s.cast || !s.directors);
+    activeShows.forEach(async (show) => {
+      const fetchKey = `${show.id}-cast-directors-tv`;
+      if (fetchingRef.current.has(fetchKey)) return;
+      fetchingRef.current.add(fetchKey);
+
+      try {
+        const freshDetails = await fetchMediaDetails(show.id, 'show');
+        if (freshDetails) {
+          setState(prev => ({
+            ...prev,
+            shows: prev.shows.map(s => s.id === show.id ? { 
+              ...s, 
+              cast: freshDetails.cast || s.cast,
+              directors: freshDetails.directors || s.directors,
+              seasonsCount: freshDetails.seasonsCount || s.seasonsCount,
+              episodesCount: freshDetails.episodesCount || s.episodesCount
+            } : s)
+          }));
+        }
+      } catch (e) {
+        console.warn(`Failed to background-heal details for show ${show.id}`, e);
+      } finally {
+        fetchingRef.current.delete(fetchKey);
+      }
+    });
+
+    const activeMovies = state.movies.filter(m => !m.cast || !m.directors);
+    activeMovies.forEach(async (movie) => {
+      const fetchKey = `${movie.id}-cast-directors-movie`;
+      if (fetchingRef.current.has(fetchKey)) return;
+      fetchingRef.current.add(fetchKey);
+
+      try {
+        const freshDetails = await fetchMediaDetails(movie.id, 'movie');
+        if (freshDetails) {
+          setState(prev => ({
+            ...prev,
+            movies: prev.movies.map(m => m.id === movie.id ? { 
+              ...m, 
+              cast: freshDetails.cast || m.cast,
+              directors: freshDetails.directors || m.directors
+            } : m)
+          }));
+        }
+      } catch (e) {
+        console.warn(`Failed to background-heal details for movie ${movie.id}`, e);
+      } finally {
+        fetchingRef.current.delete(fetchKey);
+      }
+    });
+  }, [isLoaded, state.shows.map(s => `${s.id}-${!!s.cast}-${!!s.directors}`).join(','), state.movies.map(m => `${m.id}-${!!m.cast}-${!!m.directors}`).join(',')]);
+
   // Background pre-fetch seasons for watchlist shows to ensure upcoming timeline is 100% accurate
   useEffect(() => {
     const watchlistShows = state.shows.filter(s => s.inWatchlist && !s.completed);

@@ -842,7 +842,9 @@ async function startServer() {
             stoppedWatching: show.stoppedWatching || false,
             lastWatchedAt: show.lastWatchedAt ? new Date(show.lastWatchedAt) : null,
             seasons: show.seasons || null,
-            imdbId: show.imdbId || null
+            imdbId: show.imdbId || null,
+            cast: show.cast || null,
+            directors: show.directors || null
           });
         });
       }
@@ -867,7 +869,9 @@ async function startServer() {
             userRating: movie.userRating !== undefined ? movie.userRating : null,
             completed: movie.completed || false,
             lastWatchedAt: movie.lastWatchedAt ? new Date(movie.lastWatchedAt) : null,
-            imdbId: movie.imdbId || null
+            imdbId: movie.imdbId || null,
+            cast: movie.cast || null,
+            directors: movie.directors || null
           });
         });
       }
@@ -969,7 +973,9 @@ async function startServer() {
         stoppedWatching: media.stoppedWatching,
         lastWatchedAt: media.lastWatchedAt ? new Date(media.lastWatchedAt) : null,
         seasons: media.seasons,
-        imdbId: media.imdbId
+        imdbId: media.imdbId,
+        cast: media.cast || null,
+        directors: media.directors || null
       };
 
       if (getUsePostgres()) {

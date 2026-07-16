@@ -47,6 +47,13 @@ export interface MediaItem {
   seasons?: Season[];
   imdbId?: string;
   cast?: CastMember[];
+  directors?: DirectorMember[];
+}
+
+export interface DirectorMember {
+  id: number;
+  name: string;
+  profilePath: string | null;
 }
 
 export interface WatchHistoryItem {

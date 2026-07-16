@@ -77,8 +77,16 @@ export async function initDb() {
         stopped_watching BOOLEAN DEFAULT FALSE,
         last_watched_at TIMESTAMP,
         seasons JSONB,
-        imdb_id TEXT
+        imdb_id TEXT,
+        cast JSONB,
+        directors JSONB
       );
+    `);
+
+    // Ensure columns exist for existing databases
+    await client.query(`
+      ALTER TABLE media_items ADD COLUMN IF NOT EXISTS cast JSONB;
+      ALTER TABLE media_items ADD COLUMN IF NOT EXISTS directors JSONB;
     `);
 
     await client.query(`

@@ -67,6 +67,30 @@ export function transformMedia(raw: any, type: MediaType): MediaItem {
     ? raw.genres.map((g: any) => g.name)
     : (raw.genre_ids ? raw.genre_ids.map((id: number) => GENRE_MAP[id] || 'Other').filter((v: string) => v !== 'Other') : ['Drama']);
 
+  let directorsList: { id: number; name: string; profilePath: string | null }[] | undefined = undefined;
+  if (raw.credits && raw.credits.crew) {
+    const rawDirs = raw.credits.crew.filter((member: any) => member.job === 'Director');
+    if (rawDirs.length > 0) {
+      directorsList = rawDirs.slice(0, 5).map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        profilePath: d.profile_path ? getImageUrl(d.profile_path, 'w185') : null
+      }));
+    }
+  }
+  if (type === 'show' && raw.created_by && Array.isArray(raw.created_by) && raw.created_by.length > 0) {
+    if (!directorsList) directorsList = [];
+    raw.created_by.forEach((c: any) => {
+      if (!directorsList!.some(d => d.id === c.id)) {
+        directorsList!.push({
+          id: c.id,
+          name: c.name,
+          profilePath: c.profile_path ? getImageUrl(c.profile_path, 'w185') : null
+        });
+      }
+    });
+  }
+
   return {
     id: raw.id,
     type,
@@ -86,6 +110,7 @@ export function transformMedia(raw: any, type: MediaType): MediaItem {
     completed: false,
     imdbId: raw.imdb_id || (raw.external_ids && raw.external_ids.imdb_id) || undefined,
     cast: raw.credits && raw.credits.cast ? raw.credits.cast.slice(0, 15).map((c) => ({ id: c.id, name: c.name, character: c.character, profilePath: c.profile_path ? getImageUrl(c.profile_path, 'w185') : null })) : undefined,
+    directors: directorsList,
   };
 }
 

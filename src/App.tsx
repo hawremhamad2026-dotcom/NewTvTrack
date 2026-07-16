@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppState } from './useAppState';
 import { getDeviceId, setDeviceId } from './lib/auth';
 import { Navbar, TabType } from './components/Navbar';
@@ -223,11 +223,117 @@ export default function App() {
   // Profile Tab specific states
 
   const [profileListTab, setProfileListTab] = useState<'completed_tv' | 'completed_movies' | 'fav_tv' | 'fav_movies' | 'stopped_watching'>('completed_tv');
+  const [statsRoleType, setStatsRoleType] = useState<'actor' | 'director'>('actor');
   const [syncIdInput, setSyncIdInput] = useState('');
   const [isEditingSyncId, setIsEditingSyncId] = useState(false);
   const [isLightMode, setIsLightMode] = useState(() => {
     return localStorage.getItem('theme') === 'light';
   });
+
+  const castAndCrewStats = useMemo(() => {
+    const actors: Record<number, { id: number; name: string; profilePath: string | null; count: number; items: MediaItem[] }> = {};
+    const directors: Record<number, { id: number; name: string; profilePath: string | null; count: number; items: MediaItem[] }> = {};
+
+    // 1. Process all watched movies
+    state.movies.forEach(movie => {
+      if (!movie.completed) return;
+
+      if (movie.cast && Array.isArray(movie.cast)) {
+        movie.cast.forEach(actor => {
+          if (!actors[actor.id]) {
+            actors[actor.id] = {
+              id: actor.id,
+              name: actor.name,
+              profilePath: actor.profilePath,
+              count: 0,
+              items: []
+            };
+          }
+          if (!actors[actor.id].items.some(item => item.id === movie.id && item.type === 'movie')) {
+            actors[actor.id].count++;
+            actors[actor.id].items.push(movie);
+          }
+        });
+      }
+
+      if (movie.directors && Array.isArray(movie.directors)) {
+        movie.directors.forEach(dir => {
+          if (!directors[dir.id]) {
+            directors[dir.id] = {
+              id: dir.id,
+              name: dir.name,
+              profilePath: dir.profilePath,
+              count: 0,
+              items: []
+            };
+          }
+          if (!directors[dir.id].items.some(item => item.id === movie.id && item.type === 'movie')) {
+            directors[dir.id].count++;
+            directors[dir.id].items.push(movie);
+          }
+        });
+      }
+    });
+
+    // 2. Process all watched shows
+    state.shows.forEach(show => {
+      const watchedEpisodes = state.watchedEpisodes[show.id];
+      const hasEpisodes = watchedEpisodes && Object.keys(watchedEpisodes).length > 0;
+      const isWatched = show.completed || hasEpisodes;
+
+      if (!isWatched) return;
+
+      if (show.cast && Array.isArray(show.cast)) {
+        show.cast.forEach(actor => {
+          if (!actors[actor.id]) {
+            actors[actor.id] = {
+              id: actor.id,
+              name: actor.name,
+              profilePath: actor.profilePath,
+              count: 0,
+              items: []
+            };
+          }
+          if (!actors[actor.id].items.some(item => item.id === show.id && item.type === 'show')) {
+            actors[actor.id].count++;
+            actors[actor.id].items.push(show);
+          }
+        });
+      }
+
+      if (show.directors && Array.isArray(show.directors)) {
+        show.directors.forEach(dir => {
+          if (!directors[dir.id]) {
+            directors[dir.id] = {
+              id: dir.id,
+              name: dir.name,
+              profilePath: dir.profilePath,
+              count: 0,
+              items: []
+            };
+          }
+          if (!directors[dir.id].items.some(item => item.id === show.id && item.type === 'show')) {
+            directors[dir.id].count++;
+            directors[dir.id].items.push(show);
+          }
+        });
+      }
+    });
+
+    // 3. Filter lists to only those with count >= 3, and sort by count descending
+    const filteredActors = Object.values(actors)
+      .filter(actor => actor.count >= 3)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+    const filteredDirectors = Object.values(directors)
+      .filter(dir => dir.count >= 3)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+    return {
+      actors: filteredActors,
+      directors: filteredDirectors
+    };
+  }, [state.shows, state.movies, state.watchedEpisodes]);
 
   useEffect(() => {
     if (isLightMode) {
@@ -1759,6 +1865,182 @@ export default function App() {
                     </div>
                   )}
 
+                </div>
+              </div>
+
+              {/* CREATOR & CAST STATISTICS SECTION */}
+              <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-5 space-y-5 shadow-md mt-6 select-none">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-4">
+                  <div className="space-y-1">
+                    <h3 className="font-display font-black text-sm text-[#F5F5F5] uppercase tracking-wider flex items-center gap-2">
+                      <Award className="w-4.5 h-4.5 text-amber-500 animate-pulse" />
+                      Creator & Cast Stats
+                    </h3>
+                    <p className="text-[10px] text-zinc-500 font-medium">
+                      Actors and directors you have watched at least 3 movies/shows from, ordered by total seen.
+                    </p>
+                  </div>
+
+                  {/* Selector Pills */}
+                  <div className="flex bg-zinc-950 p-1 rounded-xl border border-white/5 shrink-0 self-start sm:self-center">
+                    <button
+                      onClick={() => setStatsRoleType('actor')}
+                      className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        statsRoleType === 'actor'
+                          ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
+                          : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      Actors
+                    </button>
+                    <button
+                      onClick={() => setStatsRoleType('director')}
+                      className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                        statsRoleType === 'director'
+                          ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
+                          : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      <Film className="w-3.5 h-3.5" />
+                      Directors
+                    </button>
+                  </div>
+                </div>
+
+                {/* Stat Cards Container */}
+                <div className="space-y-4">
+                  {statsRoleType === 'actor' ? (
+                    castAndCrewStats.actors.length === 0 ? (
+                      <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
+                        No actors found with 3+ watched titles. Watch more movies or episodes to populate your list!
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {castAndCrewStats.actors.map((person, idx) => (
+                          <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
+                            {/* Person Header */}
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <div className="relative shrink-0">
+                                  <img 
+                                    src={person.profilePath || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=150&auto=format&fit=crop'} 
+                                    alt={person.name} 
+                                    className="w-12 h-12 rounded-full object-cover border border-white/10"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <span className="absolute -top-1 -left-1 w-5 h-5 bg-amber-500 rounded-full border border-zinc-950 flex items-center justify-center text-[10px] font-black text-zinc-950">
+                                    {idx + 1}
+                                  </span>
+                                </div>
+                                <div>
+                                  <h4 className="font-display font-extrabold text-sm text-zinc-100">{person.name}</h4>
+                                  <p className="text-[10px] text-zinc-500 font-medium">Cast Member</p>
+                                </div>
+                              </div>
+                              <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-mono font-extrabold rounded-lg">
+                                {person.count} {person.count === 1 ? 'Title' : 'Titles'} Watched
+                              </span>
+                            </div>
+
+                            {/* Horizontally scrolling list of watched items */}
+                            <div className="space-y-1.5">
+                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Watched Titles</span>
+                              <div className="flex gap-2.5 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+                                {person.items.map(item => (
+                                  <button
+                                    key={item.id + '-' + item.type}
+                                    onClick={() => setSelectedMediaItem(item)}
+                                    className="flex items-center gap-2.5 p-1.5 bg-[#0A0A0A]/80 hover:bg-zinc-900 border border-white/5 hover:border-white/10 rounded-lg text-left shrink-0 transition-all cursor-pointer group"
+                                    style={{ width: '210px' }}
+                                  >
+                                    <img
+                                      src={item.posterPath || 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=200&auto=format&fit=crop'}
+                                      alt={item.title}
+                                      className="w-9 h-13 rounded object-cover border border-white/5 group-hover:scale-105 transition-transform"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <div className="min-w-0 pr-1">
+                                      <h5 className="font-semibold text-xs text-zinc-200 truncate group-hover:text-amber-500 transition-colors">{item.title}</h5>
+                                      <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-zinc-850 text-zinc-400 border border-white/5">
+                                        {item.type === 'show' ? <Tv className="w-2.5 h-2.5 text-[#22C55E]" /> : <Film className="w-2.5 h-2.5 text-[#3B82F6]" />}
+                                        {item.type === 'show' ? 'Series' : 'Movie'}
+                                      </span>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    castAndCrewStats.directors.length === 0 ? (
+                      <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
+                        No directors found with 3+ watched titles. Watch more movies or episodes to populate your list!
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {castAndCrewStats.directors.map((person, idx) => (
+                          <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
+                            {/* Person Header */}
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <div className="relative shrink-0">
+                                  <img 
+                                    src={person.profilePath || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=150&auto=format&fit=crop'} 
+                                    alt={person.name} 
+                                    className="w-12 h-12 rounded-full object-cover border border-white/10"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <span className="absolute -top-1 -left-1 w-5 h-5 bg-amber-500 rounded-full border border-zinc-950 flex items-center justify-center text-[10px] font-black text-zinc-950">
+                                    {idx + 1}
+                                  </span>
+                                </div>
+                                <div>
+                                  <h4 className="font-display font-extrabold text-sm text-zinc-100">{person.name}</h4>
+                                  <p className="text-[10px] text-zinc-500 font-medium">Director / Creator</p>
+                                </div>
+                              </div>
+                              <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-mono font-extrabold rounded-lg">
+                                {person.count} {person.count === 1 ? 'Title' : 'Titles'} Watched
+                              </span>
+                            </div>
+
+                            {/* Horizontally scrolling list of watched items */}
+                            <div className="space-y-1.5">
+                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Watched Titles</span>
+                              <div className="flex gap-2.5 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+                                {person.items.map(item => (
+                                  <button
+                                    key={item.id + '-' + item.type}
+                                    onClick={() => setSelectedMediaItem(item)}
+                                    className="flex items-center gap-2.5 p-1.5 bg-[#0A0A0A]/80 hover:bg-zinc-900 border border-white/5 hover:border-white/10 rounded-lg text-left shrink-0 transition-all cursor-pointer group"
+                                    style={{ width: '210px' }}
+                                  >
+                                    <img
+                                      src={item.posterPath || 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=200&auto=format&fit=crop'}
+                                      alt={item.title}
+                                      className="w-9 h-13 rounded object-cover border border-white/5 group-hover:scale-105 transition-transform"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <div className="min-w-0 pr-1">
+                                      <h5 className="font-semibold text-xs text-zinc-200 truncate group-hover:text-amber-500 transition-colors">{item.title}</h5>
+                                      <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-zinc-850 text-zinc-400 border border-white/5">
+                                        {item.type === 'show' ? <Tv className="w-2.5 h-2.5 text-[#22C55E]" /> : <Film className="w-2.5 h-2.5 text-[#3B82F6]" />}
+                                        {item.type === 'show' ? 'Series' : 'Movie'}
+                                      </span>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
 

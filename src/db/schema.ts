@@ -28,6 +28,8 @@ export const mediaItems = pgTable('media_items', {
   lastWatchedAt: timestamp('last_watched_at'),
   seasons: jsonb('seasons'),
   imdbId: text('imdb_id'),
+  cast: jsonb('cast'),
+  directors: jsonb('directors'),
 });
 
 export const watchedEpisodes = pgTable('watched_episodes', {
