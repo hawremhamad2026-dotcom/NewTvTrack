@@ -305,9 +305,34 @@ export function useAppState() {
         const exists = prev.shows.some(s => s.id === id);
         let updatedShows;
         if (exists) {
-          updatedShows = prev.shows.map(s => s.id === id ? { ...s, inWatchlist: !s.inWatchlist } : s);
+          updatedShows = prev.shows.map(s => {
+            if (s.id === id) {
+              const newInWatchlist = !s.inWatchlist;
+              let newStoppedWatching = s.stoppedWatching;
+              
+              if (!newInWatchlist) {
+                // Removed from watchlist manually
+                const hasWatchedEpisodes = prev.watchedEpisodes && prev.watchedEpisodes[id] && Object.keys(prev.watchedEpisodes[id]).length > 0;
+                if (hasWatchedEpisodes) {
+                  newStoppedWatching = true;
+                } else {
+                  newStoppedWatching = false;
+                }
+              } else {
+                // Added to watchlist manually
+                newStoppedWatching = false;
+              }
+              
+              return {
+                ...s,
+                inWatchlist: newInWatchlist,
+                stoppedWatching: newStoppedWatching,
+              };
+            }
+            return s;
+          });
         } else if (fullItem) {
-          updatedShows = [...prev.shows, { ...fullItem, inWatchlist: true }];
+          updatedShows = [...prev.shows, { ...fullItem, inWatchlist: true, stoppedWatching: false }];
         } else {
           updatedShows = prev.shows;
         }
@@ -441,8 +466,17 @@ export function useAppState() {
       if (exists) {
         updatedShows = prev.shows.map(s => {
           if (s.id === showId) {
-            const makeWatchlist = !wasWatched ? true : s.inWatchlist;
-            const makeStopped = !wasWatched ? false : s.stoppedWatching;
+            let makeWatchlist = s.inWatchlist;
+            let makeStopped = s.stoppedWatching;
+
+            if (watchedCount === 0) {
+              makeWatchlist = false;
+              makeStopped = false;
+            } else if (!wasWatched) {
+              makeWatchlist = true;
+              makeStopped = false;
+            }
+
             return {
               ...s,
               inWatchlist: makeWatchlist,
@@ -454,9 +488,10 @@ export function useAppState() {
           return s;
         });
       } else if (fullItem) {
+        const makeWatchlist = watchedCount > 0;
         updatedShows = [...prev.shows, {
           ...fullItem,
-          inWatchlist: true,
+          inWatchlist: makeWatchlist,
           stoppedWatching: false,
           completed: isCompleted,
           lastWatchedAt: new Date().toISOString(),
@@ -510,8 +545,8 @@ export function useAppState() {
       if (exists) {
         updatedShows = prev.shows.map(s => {
           if (s.id === showId) {
-            const makeWatchlist = shouldComplete ? true : s.inWatchlist;
-            const makeStopped = shouldComplete ? false : s.stoppedWatching;
+            const makeWatchlist = shouldComplete;
+            const makeStopped = false;
             return {
               ...s,
               inWatchlist: makeWatchlist,
@@ -582,8 +617,17 @@ export function useAppState() {
       if (exists) {
         updatedShows = prev.shows.map(s => {
           if (s.id === showId) {
-            const makeWatchlist = shouldComplete ? true : s.inWatchlist;
-            const makeStopped = shouldComplete ? false : s.stoppedWatching;
+            let makeWatchlist = s.inWatchlist;
+            let makeStopped = s.stoppedWatching;
+
+            if (watchedCount === 0) {
+              makeWatchlist = false;
+              makeStopped = false;
+            } else if (shouldComplete) {
+              makeWatchlist = true;
+              makeStopped = false;
+            }
+
             return {
               ...s,
               inWatchlist: makeWatchlist,
@@ -595,9 +639,10 @@ export function useAppState() {
           return s;
         });
       } else if (fullItem) {
+        const makeWatchlist = watchedCount > 0;
         updatedShows = [...prev.shows, {
           ...fullItem,
-          inWatchlist: shouldComplete,
+          inWatchlist: makeWatchlist,
           stoppedWatching: false,
           completed: isCompleted,
           lastWatchedAt: shouldComplete ? new Date().toISOString() : null,
