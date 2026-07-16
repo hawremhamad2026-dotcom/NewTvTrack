@@ -8,9 +8,14 @@ const connectionString = process.env.DATABASE_URL;
 let pool: any = null;
 let db: any = null;
 let usePostgres = false;
+let lastDbError: string | null = null;
 
 export function getUsePostgres() {
   return usePostgres;
+}
+
+export function getLastDbError() {
+  return lastDbError;
 }
 
 export async function initDb() {
@@ -111,7 +116,8 @@ export async function initDb() {
     console.log('[Database] PostgreSQL / Supabase initialized successfully and schemas are ready.');
     return true;
   } catch (error: any) {
-    console.warn('[Database] Failed to connect to PostgreSQL/Supabase database. Error:', error?.message || error);
+    lastDbError = error?.message || String(error);
+    console.warn('[Database] Failed to connect to PostgreSQL/Supabase database. Error:', lastDbError);
     console.warn('[Database] Falling back to local JSON database.');
     usePostgres = false;
     if (pool) {

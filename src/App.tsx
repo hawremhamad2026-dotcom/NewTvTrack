@@ -48,6 +48,7 @@ import {
   Key,
   Sun,
   Moon,
+  Database,
 } from 'lucide-react';
 
 export default function App() {
@@ -229,6 +230,19 @@ export default function App() {
   const [isLightMode, setIsLightMode] = useState(() => {
     return localStorage.getItem('theme') === 'light';
   });
+  const [dbStatus, setDbStatus] = useState<{
+    usePostgres: boolean;
+    lastDbError: string | null;
+    hasConnectionString: boolean;
+    connectionStringMasked: string;
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/db-status')
+      .then(res => res.json())
+      .then(data => setDbStatus(data))
+      .catch(err => console.error('Error fetching db status:', err));
+  }, []);
 
   const castAndCrewStats = useMemo(() => {
     const actors: Record<number, { id: number; name: string; profilePath: string | null; count: number; items: MediaItem[] }> = {};
@@ -2300,6 +2314,68 @@ export default function App() {
                     </button>
                   )}
                 </div>
+              </div>
+
+              {/* DATABASE CONNECTION STATUS & DIAGNOSTICS */}
+              <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-5 sm:p-6 mb-6 flex flex-col gap-4 relative overflow-hidden select-none">
+                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-500/20 via-amber-500/5 to-transparent"></div>
+                
+                <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-amber-500" />
+                    <h2 className="text-sm font-semibold text-zinc-100 uppercase tracking-wider font-display">
+                      Supabase Connection Status
+                    </h2>
+                  </div>
+                  
+                  {dbStatus ? (
+                    dbStatus.usePostgres ? (
+                      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Connected
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                        Local Offline Mode
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-[10px] text-zinc-500 font-medium font-mono animate-pulse">Checking connection...</span>
+                  )}
+                </div>
+
+                {dbStatus && (
+                  <div className="space-y-3.5 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1 bg-[#050505]/60 border border-white/5 p-3 rounded-xl">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Connection String</span>
+                        <span className="font-mono text-[11px] text-zinc-300 break-all select-all">
+                          {dbStatus.hasConnectionString ? dbStatus.connectionStringMasked : "Missing (DATABASE_URL environment variable is not set)"}
+                        </span>
+                      </div>
+                      
+                      <div className="space-y-1 bg-[#050505]/60 border border-white/5 p-3 rounded-xl">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Storage Mode</span>
+                        <span className="text-[11px] text-zinc-300 font-medium">
+                          {dbStatus.usePostgres 
+                            ? "All watchlist items, watched episodes, custom ratings, and profiles are safely synchronized to Supabase in real-time."
+                            : "Fallback Mode. All progress is saved locally inside the browser's storage until a valid connection is established."}
+                        </span>
+                      </div>
+                    </div>
+
+                    {!dbStatus.usePostgres && dbStatus.hasConnectionString && dbStatus.lastDbError && (
+                      <div className="bg-red-950/20 border border-red-500/10 p-3.5 rounded-xl space-y-1 text-red-400 font-mono text-[11px] animate-fade-in">
+                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block">Latest Error Log:</span>
+                        <p className="leading-relaxed break-words">{dbStatus.lastDbError}</p>
+                        <p className="text-[9px] text-zinc-500 mt-2">
+                          💡 Tip: Ensure your database allows traffic from external networks and credentials are 100% correct.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* DANGER ZONE / RESET SECTION */}
