@@ -13,7 +13,7 @@ import { PasscodeScreen } from './components/PasscodeScreen';
 import { SitePasswordGate } from './components/SitePasswordGate';
 import HlsVideoPlayer from './components/HlsVideoPlayer';
 import { MediaItem, MediaType } from './types';
-import { fetchTrending, fetchDiscover, fetchPopular, searchMedia, GENRE_MAP } from './tmdb';
+import { fetchTrending, fetchDiscover, fetchPopular, searchMedia, GENRE_MAP, fetchTraktList } from './tmdb';
 import { AnimatePresence } from 'motion/react';
 import {
   Search,
@@ -219,6 +219,18 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [sortBy, setSortBy] = useState<'popularity' | 'rating' | 'year'>('popularity');
   const [loadingDiscover, setLoadingDiscover] = useState(false);
+
+  // Explore sub-tab
+  const [exploreSubTab, setExploreSubTab] = useState<'discover' | 'trakt'>('discover');
+
+  // Trakt specific states
+  const [traktMediaType, setTraktMediaType] = useState<MediaType>('movie');
+  const [traktListType, setTraktListType] = useState<'trending' | 'boxoffice' | 'popular' | 'favorited' | 'played' | 'watched' | 'anticipated'>('trending');
+  const [traktItems, setTraktItems] = useState<MediaItem[]>([]);
+  const [loadingTrakt, setLoadingTrakt] = useState(false);
+  const [traktPage, setTraktPage] = useState(1);
+  const [traktYear, setTraktYear] = useState<string>('');
+  const [traktGenre, setTraktGenre] = useState<string | null>(null);
 
   // Profile Tab specific states
 
@@ -507,6 +519,36 @@ export default function App() {
       setLoadingDiscover(false);
     }
   };
+
+  const loadTraktData = async (resetPage = false) => {
+    setLoadingTrakt(true);
+    const pageToFetch = resetPage ? 1 : traktPage + 1;
+    try {
+      const data = await fetchTraktList(traktMediaType, traktListType, pageToFetch, 20, traktYear || undefined, traktGenre || undefined);
+      if (resetPage) {
+        setTraktItems(data);
+        setTraktPage(1);
+      } else {
+        setTraktItems(prev => {
+          const unique = new Map();
+          prev.forEach(item => unique.set(item.id, item));
+          data.forEach(item => unique.set(item.id, item));
+          return Array.from(unique.values());
+        });
+        setTraktPage(pageToFetch);
+      }
+    } catch (e) {
+      console.error('Failed to load trakt data:', e);
+    } finally {
+      setLoadingTrakt(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'explore' && exploreSubTab === 'trakt') {
+      loadTraktData(true);
+    }
+  }, [exploreSubTab, traktMediaType, traktListType, traktYear, traktGenre]);
 
   // Real-time search handler with standard debounce simulation
   useEffect(() => {
@@ -1134,26 +1176,51 @@ export default function App() {
           {activeTab === 'explore' && (
             <div className="space-y-4.5 animate-fade-in">
               
-              {/* REAL-TIME SEARCH BAR */}
-              <div className="relative">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-zinc-500" />
-                <input
-                  id="search-media-input"
-                  type="text"
-                  placeholder="Search popular movies and TV shows..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-zinc-900/40 border border-white/5 hover:border-white/10 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 pl-11 pr-10 py-3 rounded-xl text-sm font-medium placeholder-zinc-500 outline-none transition-all"
-                />
-                {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs font-bold"
-                  >
-                    Clear
-                  </button>
-                )}
+              <div className="flex bg-zinc-900/50 border border-white/5 p-1 rounded-xl">
+                <button
+                  onClick={() => setExploreSubTab('discover')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    exploreSubTab === 'discover'
+                      ? 'bg-zinc-850 text-amber-500 shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-200'
+                  }`}
+                >
+                  Discover & Search
+                </button>
+                <button
+                  onClick={() => setExploreSubTab('trakt')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    exploreSubTab === 'trakt'
+                      ? 'bg-zinc-850 text-amber-500 shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-200'
+                  }`}
+                >
+                  Trakt Lists
+                </button>
               </div>
+
+              {exploreSubTab === 'discover' ? (
+                <>
+                  {/* REAL-TIME SEARCH BAR */}
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-zinc-500" />
+                    <input
+                      id="search-media-input"
+                      type="text"
+                      placeholder="Search popular movies and TV shows..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-zinc-900/40 border border-white/5 hover:border-white/10 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 pl-11 pr-10 py-3 rounded-xl text-sm font-medium placeholder-zinc-500 outline-none transition-all"
+                    />
+                    {searchTerm && (
+                      <button
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs font-bold"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
 
               {/* SEARCH RESULTS VIEW */}
               {searchTerm.trim() ? (
@@ -1588,10 +1655,155 @@ export default function App() {
 
                 </div>
               )}
+            </>
+          ) : (
+            <div className="space-y-5">
+              {/* TRAKT CONTROLS */}
+              <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-4 shadow-md space-y-4">
+                
+                <div className="flex bg-zinc-900/60 p-0.5 rounded-lg border border-white/5">
+                  <button
+                    onClick={() => setTraktMediaType('show')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                      traktMediaType === 'show' ? 'bg-amber-500 text-zinc-950 shadow-sm font-extrabold' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    TV Shows
+                  </button>
+                  <button
+                    onClick={() => setTraktMediaType('movie')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                      traktMediaType === 'movie' ? 'bg-amber-500 text-zinc-950 shadow-sm font-extrabold' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Movies
+                  </button>
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                  {(['trending', 'popular', 'anticipated', 'played', 'watched', 'favorited'] as const).concat(traktMediaType === 'movie' ? ['boxoffice'] : []).map(listType => (
+                    <button
+                      key={listType}
+                      onClick={() => setTraktListType(listType)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-all border cursor-pointer capitalize ${
+                        traktListType === listType
+                          ? 'bg-zinc-800 text-amber-500 border-amber-500/30'
+                          : 'bg-zinc-900/40 text-zinc-500 border-white/5 hover:text-zinc-300'
+                      }`}
+                    >
+                      {listType}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Year</span>
+                    <select 
+                      value={traktYear} 
+                      onChange={(e) => setTraktYear(e.target.value)}
+                      className="bg-zinc-900 border border-white/10 rounded-md text-xs text-zinc-300 p-1 outline-none focus:border-amber-500"
+                    >
+                      <option value="">All</option>
+                      {Array.from({length: 30}, (_, i) => new Date().getFullYear() + 2 - i).map(y => (
+                        <option key={y} value={y.toString()}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Genre</span>
+                    <select 
+                      value={traktGenre || ''} 
+                      onChange={(e) => setTraktGenre(e.target.value || null)}
+                      className="bg-zinc-900 border border-white/10 rounded-md text-xs text-zinc-300 p-1 outline-none focus:border-amber-500"
+                    >
+                      <option value="">All</option>
+                      <option value="action">Action</option>
+                      <option value="animation">Animation</option>
+                      <option value="comedy">Comedy</option>
+                      <option value="documentary">Documentary</option>
+                      <option value="drama">Drama</option>
+                      <option value="fantasy">Fantasy</option>
+                      <option value="horror">Horror</option>
+                      <option value="mystery">Mystery</option>
+                      <option value="romance">Romance</option>
+                      <option value="science-fiction">Sci-Fi</option>
+                      <option value="thriller">Thriller</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* TRAKT GRID */}
+              <div className="space-y-3.5">
+                <div className="flex items-center gap-2 pl-1">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider capitalize">
+                    Trakt {traktListType}
+                  </h3>
+                </div>
+
+                {loadingTrakt && traktPage === 1 ? (
+                  <div className="py-20 flex flex-col items-center justify-center gap-3">
+                    <div className="w-8 h-8 border-4 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+                    <span className="text-xs text-zinc-500">Fetching Trakt lists...</span>
+                  </div>
+                ) : traktItems.length === 0 ? (
+                  <div className="py-16 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl flex flex-col items-center gap-2">
+                    <AlertCircle className="w-7 h-7 text-zinc-700" />
+                    <span>No items found for the selected Trakt list and filters.</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                      {traktItems.map(item => {
+                        const localItem = item.type === 'show'
+                          ? state.shows.find(s => s.id === item.id)
+                          : state.movies.find(m => m.id === item.id);
+
+                        return (
+                          <MediaCard
+                            key={`trakt-${item.id}`}
+                            item={localItem || item}
+                            onToggleWatchlist={(e) => {
+                              e.stopPropagation();
+                              state.toggleWatchlist(item.id, item.type, localItem || item);
+                            }}
+                            onClick={() => {
+                              if (!localItem) state.importMediaItem(item);
+                              setSelectedMediaItem(localItem || item);
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-2 flex justify-center">
+                      <button
+                        onClick={() => loadTraktData(false)}
+                        disabled={loadingTrakt}
+                        className="px-6 py-2.5 bg-[#0A0A0A]/40 hover:bg-zinc-900 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-300 hover:text-white rounded-xl transition-colors w-full cursor-pointer flex justify-center items-center gap-2"
+                      >
+                        {loadingTrakt ? (
+                          <>
+                            <div className="w-3.5 h-3.5 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
+                            <span>Loading next page...</span>
+                          </>
+                        ) : (
+                          <span>Load More Trakt Items</span>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
+        </div>
+      )}
 
-          {/* 4. PROFILE TAB */}
+      {/* 4. PROFILE TAB */}
           {activeTab === 'profile' && (
             <div className="space-y-5 animate-fade-in select-none">
               
