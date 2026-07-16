@@ -38,7 +38,6 @@ export async function initDb() {
         ? { rejectUnauthorized: false } 
         : undefined,
       connectionTimeoutMillis: 8000, // 8s timeout
-      statement_timeout: 5000,       // 5s timeout per statement
     });
 
     // Test the connection
@@ -79,7 +78,7 @@ export async function initDb() {
         last_watched_at TIMESTAMP,
         seasons JSONB,
         imdb_id TEXT,
-        cast JSONB,
+        "cast" JSONB,
         directors JSONB
       );
     `);
@@ -88,7 +87,7 @@ export async function initDb() {
     try {
       await client.query(`SET lock_timeout = '3000';`);
       await client.query(`
-        ALTER TABLE media_items ADD COLUMN IF NOT EXISTS cast JSONB;
+        ALTER TABLE media_items ADD COLUMN IF NOT EXISTS "cast" JSONB;
         ALTER TABLE media_items ADD COLUMN IF NOT EXISTS directors JSONB;
       `);
     } catch (e: any) {
