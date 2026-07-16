@@ -68,12 +68,12 @@ export function pruneInactiveState(prev: SavedState): SavedState {
   const activeShows = (prev.shows || []).filter(s => {
     const hasWatchedEpisodes = prev.watchedEpisodes && prev.watchedEpisodes[s.id] && Object.keys(prev.watchedEpisodes[s.id]).length > 0;
     const isFavorite = (prev.favorites || []).includes(s.id) || s.isFavorite;
-    return s.inWatchlist || isFavorite || s.userRating != null || s.completed || s.stoppedWatching || hasWatchedEpisodes;
+    return s.inWatchlist || isFavorite || s.userRating !== null || s.completed || s.stoppedWatching || hasWatchedEpisodes;
   });
 
   const activeMovies = (prev.movies || []).filter(m => {
     const isFavorite = (prev.favorites || []).includes(m.id) || m.isFavorite;
-    return m.inWatchlist || isFavorite || m.userRating != null || m.completed;
+    return m.inWatchlist || isFavorite || m.userRating !== null || m.completed;
   });
 
   // Ensure favorites array only contains active items
