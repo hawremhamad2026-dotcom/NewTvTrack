@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { MediaItem, Season, Episode, MediaType, TMDBReview } from '../types';
 import { X, Star, Heart, Users, Bookmark, Check, ChevronDown, ChevronUp, Clock, Calendar, Film, Tv, Play, Ban, ExternalLink, Settings, Link, Flame, HardDrive, Smartphone, Laptop, Copy, Activity, Info, ChevronLeft, Search, Download, Globe, Wifi, Table, LayoutGrid, TrendingUp, MessageSquare, ThumbsUp, ThumbsDown, EyeOff, AlertTriangle, Cloud, RefreshCw, Loader2 } from 'lucide-react';
 import { fetchShowSeasons, getImageUrl, fetchMediaDetails, fetchMediaVideos, fetchMediaReviews, fetchTraktId, fetchTraktComments, fetchEpisodeImdbId } from '../tmdb';
@@ -4040,10 +4041,13 @@ export function DetailModal({
             handlePlayEpisode={handlePlayEpisode}
           />
         )}
+      </AnimatePresence>
 
-        {/* EPISODE COMMENTS MODAL (WINDOW) */}
-        {selectedEpisodeForComments && (() => {
-          const epKey = `S${selectedEpisodeForComments.seasonNum}E${selectedEpisodeForComments.episodeNum}`;
+      {/* EPISODE COMMENTS MODAL (WINDOW) */}
+      {createPortal(
+        <AnimatePresence>
+          {selectedEpisodeForComments && (() => {
+            const epKey = `S${selectedEpisodeForComments.seasonNum}E${selectedEpisodeForComments.episodeNum}`;
           const comments = episodeComments[epKey] || [];
           const isLoading = loadingEpisodeComments[epKey];
 
@@ -4323,7 +4327,9 @@ export function DetailModal({
             </motion.div>
           );
         })()}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

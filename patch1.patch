@@ -1,0 +1,52 @@
+--- src/components/DetailModal.tsx
++++ src/components/DetailModal.tsx
+@@ -4041,25 +4041,27 @@
+             handlePlayEpisode={handlePlayEpisode}
+           />
+         )}
++      </AnimatePresence>
+ 
+-        {/* EPISODE COMMENTS MODAL (WINDOW) */}
+-        {selectedEpisodeForComments && (() => {
+-          const epKey = `S${selectedEpisodeForComments.seasonNum}E${selectedEpisodeForComments.episodeNum}`;
+-          const comments = episodeComments[epKey] || [];
+-          const isLoading = loadingEpisodeComments[epKey];
+-
+-          // Filter by active tab
+-          const activeComments = comments.filter(c => c.source === activeEpisodeReviewTab);
+-
+-          // Sort local comments
+-          const sortedEpisodeComments = [...activeComments].sort((a, b) => {
+-            if (reviewsSortOrder === 'reactions') {
+-              const scoreA = getReactionScore(a);
+-              const scoreB = getReactionScore(b);
+-              if (scoreB !== scoreA) return scoreB - scoreA;
+-            }
+-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+-          });
+-
+-          return createPortal(
+-            <motion.div
++      {/* EPISODE COMMENTS MODAL (WINDOW) */}
++      {createPortal(
++        <AnimatePresence>
++          {selectedEpisodeForComments && (() => {
++            const epKey = `S${selectedEpisodeForComments.seasonNum}E${selectedEpisodeForComments.episodeNum}`;
++            const comments = episodeComments[epKey] || [];
++            const isLoading = loadingEpisodeComments[epKey];
++
++            // Filter by active tab
++            const activeComments = comments.filter(c => c.source === activeEpisodeReviewTab);
++
++            // Sort local comments
++            const sortedEpisodeComments = [...activeComments].sort((a, b) => {
++              if (reviewsSortOrder === 'reactions') {
++                const scoreA = getReactionScore(a);
++                const scoreB = getReactionScore(b);
++                if (scoreB !== scoreA) return scoreB - scoreA;
++              }
++              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
++            });
++
++            return (
++              <motion.div
