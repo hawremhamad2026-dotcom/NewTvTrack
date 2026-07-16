@@ -83,11 +83,16 @@ export async function initDb() {
       );
     `);
 
-    // Ensure columns exist for existing databases
-    await client.query(`
-      ALTER TABLE media_items ADD COLUMN IF NOT EXISTS cast JSONB;
-      ALTER TABLE media_items ADD COLUMN IF NOT EXISTS directors JSONB;
-    `);
+    // Ensure columns exist for existing databases with a quick lock timeout to prevent blocking on lock contention
+    try {
+      await client.query(`SET lock_timeout = '3000';`);
+      await client.query(`
+        ALTER TABLE media_items ADD COLUMN IF NOT EXISTS cast JSONB;
+        ALTER TABLE media_items ADD COLUMN IF NOT EXISTS directors JSONB;
+      `);
+    } catch (e: any) {
+      console.warn('[Database] Failed to alter table media_items. It might be locked or columns may already exist. Error:', e?.message || e);
+    }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS watched_episodes (

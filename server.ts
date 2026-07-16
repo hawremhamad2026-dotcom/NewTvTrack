@@ -40,9 +40,6 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   
-  // Initialize the database connection (Supabase or fallback JSON)
-  await initDb();
-  
   app.use(express.json());
 
   const seedrClient = new SeedrClient();
@@ -1088,6 +1085,11 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
+    // Initialize the database connection (Supabase or fallback JSON) asynchronously 
+    // so it never blocks port binding or Cloud Run health checks
+    initDb().catch(err => {
+      console.error('[Database] Asynchronous database initialization error:', err);
+    });
   });
 }
 
