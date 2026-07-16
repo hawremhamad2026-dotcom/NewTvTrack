@@ -9,7 +9,7 @@ import tls from "tls";
 import { GoogleGenAI, Type } from "@google/genai";
 import { SeedrClient } from "./src/lib/seedrService.js";
 import { loadDb, saveDb } from "./src/db/jsonDb.js";
-import { getDb, initDb, getUsePostgres, getLastDbError } from "./src/db/index.js";
+import { getDb, initDb, getUsePostgres } from "./src/db/index.js";
 import { userProfiles, mediaItems, watchedEpisodes } from "./src/db/schema.js";
 import { eq, and } from "drizzle-orm";
 
@@ -47,29 +47,6 @@ async function startServer() {
   // API: Health check for platform
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
-  });
-
-  // API: Get detailed database connection status
-  app.get("/api/db-status", (req, res) => {
-    const url = process.env.DATABASE_URL || "";
-    let maskedUrl = "Not defined";
-    if (url) {
-      const parts = url.split("@");
-      if (parts.length > 1) {
-        // Mask the password and part of the host
-        const connectionDetails = parts[0].split(":");
-        const protocolAndUser = connectionDetails.slice(0, 2).join(":"); // e.g., postgresql://postgres
-        maskedUrl = `${protocolAndUser}:****@${parts[1].substring(0, 8)}...${parts[1].substring(parts[1].length - 15)}`;
-      } else {
-        maskedUrl = url.substring(0, 15) + "...";
-      }
-    }
-    res.json({
-      usePostgres: getUsePostgres(),
-      lastDbError: getLastDbError(),
-      hasConnectionString: !!url,
-      connectionStringMasked: maskedUrl
-    });
   });
 
   // API: Get Seedr stream status (ready, downloading, not_added)

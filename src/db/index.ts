@@ -2,29 +2,15 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import pkg from 'pg';
 const { Pool } = pkg;
 import * as schema from './schema.js';
-import dns from 'node:dns';
-
-// Force Node.js to resolve IPv4 addresses first.
-// By default, modern Node.js versions (v17+) match OS resolution, which often prioritizes IPv6.
-// In cloud environments like Google Cloud Run, outbound IPv6 is not configured/supported by default.
-// If Supabase resolves to an IPv6 address first, the connection will hang and time out.
-if (dns && typeof dns.setDefaultResultOrder === 'function') {
-  dns.setDefaultResultOrder('ipv4first');
-}
 
 const connectionString = process.env.DATABASE_URL;
 
 let pool: any = null;
 let db: any = null;
 let usePostgres = false;
-let lastDbError: string | null = null;
 
 export function getUsePostgres() {
   return usePostgres;
-}
-
-export function getLastDbError() {
-  return lastDbError;
 }
 
 export async function initDb() {
@@ -51,9 +37,7 @@ export async function initDb() {
       ssl: connectionString.includes('supabase.co') || connectionString.includes('supabase.com') || connectionString.includes('pooler') 
         ? { rejectUnauthorized: false } 
         : undefined,
-      connectionTimeoutMillis: 15000, // 15s timeout
-      max: 5, // Keep connection count lightweight for serverless / transaction poolers
-      idleTimeoutMillis: 30000, // Close idle clients after 30s
+      connectionTimeoutMillis: 8000, // 8s timeout
     });
 
     // Test the connection
@@ -127,8 +111,7 @@ export async function initDb() {
     console.log('[Database] PostgreSQL / Supabase initialized successfully and schemas are ready.');
     return true;
   } catch (error: any) {
-    lastDbError = error?.message || String(error);
-    console.warn('[Database] Failed to connect to PostgreSQL/Supabase database. Error:', lastDbError);
+    console.warn('[Database] Failed to connect to PostgreSQL/Supabase database. Error:', error?.message || error);
     console.warn('[Database] Falling back to local JSON database.');
     usePostgres = false;
     if (pool) {
