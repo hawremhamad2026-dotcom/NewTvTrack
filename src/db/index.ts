@@ -38,6 +38,7 @@ export async function initDb() {
         ? { rejectUnauthorized: false } 
         : undefined,
       connectionTimeoutMillis: 8000, // 8s timeout
+      statement_timeout: 5000,       // 5s timeout per statement
     });
 
     // Test the connection
