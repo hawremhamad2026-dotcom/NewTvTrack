@@ -97,6 +97,8 @@ export function useAppState() {
   const deviceIdRef = useRef<string>(getDeviceId());
   const [state, setRawState] = useState<SavedState>(getDefaultState);
   const [isLoaded, setIsLoaded] = useState(false);
+  const isLoadedRef = useRef(false);
+  const loadFailedRef = useRef(false);
   const fetchingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -117,9 +119,15 @@ export function useAppState() {
             favorites: data.favorites || [],
             updatedAt: Date.now()
           });
+          loadFailedRef.current = false;
+          isLoadedRef.current = true;
+        } else {
+          console.error('Failed to load state from cloud:', res.statusText);
+          loadFailedRef.current = true;
         }
       } catch (e) {
         console.error('Failed to load state from cloud:', e);
+        loadFailedRef.current = true;
       } finally {
         setIsLoaded(true);
       }
@@ -133,6 +141,10 @@ export function useAppState() {
   }, [state]);
 
   const saveState = useCallback(async (currentState: SavedState, isUnloading = false) => {
+    if (!isLoadedRef.current || loadFailedRef.current) {
+      console.warn('[useAppState] Skipping saveState because state has not been successfully loaded from cloud.');
+      return;
+    }
     try {
       const deviceId = deviceIdRef.current;
       
@@ -167,7 +179,7 @@ export function useAppState() {
   }, []);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || loadFailedRef.current) return;
     
     const timeoutId = setTimeout(() => {
       saveState(state, false);
@@ -177,7 +189,7 @@ export function useAppState() {
   }, [state, isLoaded, saveState]);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || loadFailedRef.current) return;
 
     const handleBeforeUnload = () => {
       saveState(stateRef.current, true);
