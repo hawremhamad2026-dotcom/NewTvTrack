@@ -693,6 +693,36 @@ export default function App() {
     );
   }
 
+  // Full-screen loading screen while cloud database state is restoring
+  if (!state.isLoaded) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-[#F5F5F5] flex flex-col items-center justify-center font-sans antialiased select-none">
+        <div className="flex flex-col items-center gap-6 max-w-sm text-center px-6">
+          <div className="relative">
+            <div className="absolute inset-0 bg-amber-500/20 blur-xl rounded-full animate-pulse" />
+            <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-2xl shadow-amber-500/30 animate-pulse">
+              <Tv className="w-8 h-8 text-zinc-950" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="font-display font-extrabold text-2xl tracking-tight bg-gradient-to-b from-[#F5F5F5] to-zinc-400 bg-clip-text text-transparent">
+              TV Time
+            </h1>
+            <p className="text-xs font-medium text-zinc-500 animate-pulse">
+              Restoring your personal cloud library...
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/40 border border-white/5 rounded-full">
+            <div className="w-3.5 h-3.5 border-2 border-zinc-700 border-t-amber-500 rounded-full animate-spin" />
+            <span className="text-[10px] font-bold text-zinc-400 tracking-wider uppercase">Syncing...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Full-screen passcode unlock screen blocker on startup
   if (isAppLocked) {
     return (
