@@ -72,6 +72,7 @@ export interface WatchHistoryItem {
 
 export interface UserStats {
   episodesWatched: number;
+  showsWatched: number;
   hoursSpent: number;
   moviesWatched: number;
 }

@@ -50,6 +50,27 @@ import {
   Moon,
 } from 'lucide-react';
 
+function formatHoursSpent(totalHours: number): string {
+  if (totalHours <= 0) return "0h";
+  
+  const years = Math.floor(totalHours / (24 * 365));
+  let remainingHours = totalHours % (24 * 365);
+  
+  const months = Math.floor(remainingHours / (24 * 30));
+  remainingHours = remainingHours % (24 * 30);
+  
+  const days = Math.floor(remainingHours / 24);
+  const hours = remainingHours % 24;
+  
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years}y`);
+  if (months > 0) parts.push(`${months}mo`);
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0 || parts.length === 0) parts.push(`${hours}h`);
+  
+  return parts.join(' ');
+}
+
 export default function App() {
   const state = useAppState();
 
@@ -241,6 +262,7 @@ export default function App() {
   const [showAllDirectors, setShowAllDirectors] = useState(false);
   const [syncIdInput, setSyncIdInput] = useState('');
   const [isEditingSyncId, setIsEditingSyncId] = useState(false);
+  const [revealHoursSpent, setRevealHoursSpent] = useState(false);
   const [isLightMode, setIsLightMode] = useState(() => {
     return localStorage.getItem('theme') === 'light';
   });
@@ -1885,21 +1907,30 @@ export default function App() {
                 <div className="grid grid-cols-3 gap-2.5 w-full mt-4.5 z-10">
                   <div className="bg-[#050505]/70 border border-white/5 p-2.5 rounded-xl text-center">
                     <span className="block font-display font-extrabold text-lg text-amber-500 leading-none">
-                      {state.stats.episodesWatched}
+                      {state.stats.showsWatched}
                     </span>
                     <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wide mt-1 block">
-                      Episodes
+                      TV Shows
                     </span>
                   </div>
 
-                  <div className="bg-[#050505]/70 border border-white/5 p-2.5 rounded-xl text-center">
-                    <span className="block font-display font-extrabold text-lg text-amber-500 leading-none">
-                      {state.stats.hoursSpent}h
-                    </span>
+                  <button
+                    onClick={() => setRevealHoursSpent(!revealHoursSpent)}
+                    className="bg-[#050505]/70 hover:bg-[#0f0f0f]/80 transition-all border border-white/5 p-2.5 rounded-xl text-center cursor-pointer flex flex-col justify-center items-center select-none min-h-[58px]"
+                  >
+                    {revealHoursSpent ? (
+                      <span className="block font-display font-bold text-xs text-amber-500 leading-tight">
+                        {formatHoursSpent(state.stats.hoursSpent)}
+                      </span>
+                    ) : (
+                      <span className="block font-display font-bold text-xs text-zinc-500 hover:text-amber-500 leading-none py-0.5">
+                        Reveal
+                      </span>
+                    )}
                     <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wide mt-1 block">
                       Time Spent
                     </span>
-                  </div>
+                  </button>
 
                   <div className="bg-[#050505]/70 border border-white/5 p-2.5 rounded-xl text-center">
                     <span className="block font-display font-extrabold text-lg text-amber-500 leading-none">

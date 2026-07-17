@@ -992,8 +992,13 @@ export function useAppState() {
       movieHours += (m.runtime > 0 ? m.runtime : 120) / 60;
     });
 
+    const showsWatchedCount = Object.keys(state.watchedEpisodes).filter(
+      showIdStr => Object.keys(state.watchedEpisodes[Number(showIdStr)] || {}).length > 0
+    ).length;
+
     const stats: UserStats = {
       episodesWatched: totalEpisodesWatched,
+      showsWatched: showsWatchedCount,
       hoursSpent: Math.round(tvHours + movieHours),
       moviesWatched: moviesWatchedCount,
     };
