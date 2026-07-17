@@ -231,6 +231,7 @@ export default function App() {
   const [traktPage, setTraktPage] = useState(1);
   const [traktYear, setTraktYear] = useState<string>('');
   const [traktGenre, setTraktGenre] = useState<string | null>(null);
+  const [traktHideWatched, setTraktHideWatched] = useState(false);
 
   // Profile Tab specific states
 
@@ -1734,6 +1735,21 @@ export default function App() {
                       <option value="thriller">Thriller</option>
                     </select>
                   </div>
+                  <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t border-white/5">
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Hide Watched</span>
+                    <button
+                      onClick={() => setTraktHideWatched(!traktHideWatched)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        traktHideWatched ? 'bg-amber-500' : 'bg-zinc-800'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          traktHideWatched ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1751,54 +1767,84 @@ export default function App() {
                     <div className="w-8 h-8 border-4 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
                     <span className="text-xs text-zinc-500">Fetching Trakt lists...</span>
                   </div>
-                ) : traktItems.length === 0 ? (
-                  <div className="py-16 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl flex flex-col items-center gap-2">
-                    <AlertCircle className="w-7 h-7 text-zinc-700" />
-                    <span>No items found for the selected Trakt list and filters.</span>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                      {traktItems.map(item => {
-                        const localItem = item.type === 'show'
-                          ? state.shows.find(s => s.id === item.id)
-                          : state.movies.find(m => m.id === item.id);
+                ) : (() => {
+                  const filteredItems = traktItems.filter(item => {
+                    if (!traktHideWatched) return true;
+                    const localItem = item.type === 'show'
+                      ? state.shows.find(s => s.id === item.id)
+                      : state.movies.find(m => m.id === item.id);
+                    if (!localItem) return true;
+                    if (item.type === 'movie') {
+                      return !localItem.completed;
+                    } else {
+                      const watchedEpisodes = state.watchedEpisodes[item.id];
+                      const hasEpisodes = watchedEpisodes && Object.keys(watchedEpisodes).length > 0;
+                      return !(localItem.completed || hasEpisodes);
+                    }
+                  });
 
-                        return (
-                          <MediaCard
-                            key={`trakt-${item.id}`}
-                            item={localItem || item}
-                            onToggleWatchlist={(e) => {
-                              e.stopPropagation();
-                              state.toggleWatchlist(item.id, item.type, localItem || item);
-                            }}
-                            onClick={() => {
-                              if (!localItem) state.importMediaItem(item);
-                              setSelectedMediaItem(localItem || item);
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
+                  if (traktItems.length === 0) {
+                    return (
+                      <div className="py-16 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl flex flex-col items-center gap-2">
+                        <AlertCircle className="w-7 h-7 text-zinc-700" />
+                        <span>No items found for the selected Trakt list and filters.</span>
+                      </div>
+                    );
+                  }
 
-                    <div className="pt-2 flex justify-center">
-                      <button
-                        onClick={() => loadTraktData(false)}
-                        disabled={loadingTrakt}
-                        className="px-6 py-2.5 bg-[#0A0A0A]/40 hover:bg-zinc-900 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-300 hover:text-white rounded-xl transition-colors w-full cursor-pointer flex justify-center items-center gap-2"
-                      >
-                        {loadingTrakt ? (
-                          <>
-                            <div className="w-3.5 h-3.5 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
-                            <span>Loading next page...</span>
-                          </>
-                        ) : (
-                          <span>Load More Trakt Items</span>
-                        )}
-                      </button>
-                    </div>
-                  </>
-                )}
+                  if (filteredItems.length === 0) {
+                    return (
+                      <div className="py-16 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl flex flex-col items-center gap-2">
+                        <AlertCircle className="w-7 h-7 text-zinc-700" />
+                        <span>All items are hidden because they are marked as watched.</span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                        {filteredItems.map(item => {
+                          const localItem = item.type === 'show'
+                            ? state.shows.find(s => s.id === item.id)
+                            : state.movies.find(m => m.id === item.id);
+
+                          return (
+                            <MediaCard
+                              key={`trakt-${item.id}`}
+                              item={localItem || item}
+                              onToggleWatchlist={(e) => {
+                                e.stopPropagation();
+                                state.toggleWatchlist(item.id, item.type, localItem || item);
+                              }}
+                              onClick={() => {
+                                if (!localItem) state.importMediaItem(item);
+                                setSelectedMediaItem(localItem || item);
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+
+                      <div className="pt-2 flex justify-center">
+                        <button
+                          onClick={() => loadTraktData(false)}
+                          disabled={loadingTrakt}
+                          className="px-6 py-2.5 bg-[#0A0A0A]/40 hover:bg-zinc-900 border border-white/5 hover:border-white/10 text-xs font-bold text-zinc-300 hover:text-white rounded-xl transition-colors w-full cursor-pointer flex justify-center items-center gap-2"
+                        >
+                          {loadingTrakt ? (
+                            <>
+                              <div className="w-3.5 h-3.5 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
+                              <span>Loading next page...</span>
+                            </>
+                          ) : (
+                            <span>Load More Trakt Items</span>
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
