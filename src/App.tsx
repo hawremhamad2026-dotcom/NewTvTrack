@@ -236,6 +236,8 @@ export default function App() {
 
   const [profileListTab, setProfileListTab] = useState<'creator_cast' | 'completed_tv' | 'completed_movies' | 'fav_tv' | 'fav_movies' | 'stopped_watching'>('creator_cast');
   const [statsRoleType, setStatsRoleType] = useState<'actor' | 'director'>('actor');
+  const [showAllActors, setShowAllActors] = useState(false);
+  const [showAllDirectors, setShowAllDirectors] = useState(false);
   const [syncIdInput, setSyncIdInput] = useState('');
   const [isEditingSyncId, setIsEditingSyncId] = useState(false);
   const [isLightMode, setIsLightMode] = useState(() => {
@@ -1681,7 +1683,7 @@ export default function App() {
                 </div>
 
                 <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                  {(['trending', 'popular', 'anticipated', 'played', 'watched', 'favorited'] as const).concat(traktMediaType === 'movie' ? ['boxoffice'] : []).map(listType => (
+                  {((['trending', 'popular', 'anticipated', 'played', 'watched', 'favorited'] as string[]).concat(traktMediaType === 'movie' ? ['boxoffice'] : []) as typeof traktListType[]).map(listType => (
                     <button
                       key={listType}
                       onClick={() => setTraktListType(listType)}
@@ -1967,7 +1969,10 @@ export default function App() {
                         {/* Selector Pills */}
                         <div className="flex bg-zinc-950 p-1 rounded-xl border border-white/5 shrink-0 self-start sm:self-center">
                           <button
-                            onClick={() => setStatsRoleType('actor')}
+                            onClick={() => {
+                              setStatsRoleType('actor');
+                              setShowAllActors(false);
+                            }}
                             className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                               statsRoleType === 'actor'
                                 ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
@@ -1978,7 +1983,10 @@ export default function App() {
                             Actors
                           </button>
                           <button
-                            onClick={() => setStatsRoleType('director')}
+                            onClick={() => {
+                              setStatsRoleType('director');
+                              setShowAllDirectors(false);
+                            }}
                             className={`px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                               statsRoleType === 'director'
                                 ? 'bg-zinc-850 text-amber-500 font-extrabold shadow-sm'
@@ -2000,7 +2008,7 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-4">
-                              {castAndCrewStats.actors.map((person, idx) => (
+                              {(showAllActors ? castAndCrewStats.actors : castAndCrewStats.actors.slice(0, 5)).map((person, idx) => (
                                 <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
                                   {/* Person Header */}
                                   <div className="flex items-center justify-between gap-3">
@@ -2056,6 +2064,17 @@ export default function App() {
                                   </div>
                                 </div>
                               ))}
+
+                              {castAndCrewStats.actors.length > 5 && (
+                                <div className="flex justify-center pt-2">
+                                  <button
+                                    onClick={() => setShowAllActors(!showAllActors)}
+                                    className="px-5 py-2.5 bg-[#050505]/60 hover:bg-[#050505] border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                                  >
+                                    {showAllActors ? 'Show Less' : `Show All (${castAndCrewStats.actors.length})`}
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )
                         ) : (
@@ -2065,7 +2084,7 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-4">
-                              {castAndCrewStats.directors.map((person, idx) => (
+                              {(showAllDirectors ? castAndCrewStats.directors : castAndCrewStats.directors.slice(0, 5)).map((person, idx) => (
                                 <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
                                   {/* Person Header */}
                                   <div className="flex items-center justify-between gap-3">
@@ -2121,6 +2140,17 @@ export default function App() {
                                   </div>
                                 </div>
                               ))}
+
+                              {castAndCrewStats.directors.length > 5 && (
+                                <div className="flex justify-center pt-2">
+                                  <button
+                                    onClick={() => setShowAllDirectors(!showAllDirectors)}
+                                    className="px-5 py-2.5 bg-[#050505]/60 hover:bg-[#050505] border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                                  >
+                                    {showAllDirectors ? 'Show Less' : `Show All (${castAndCrewStats.directors.length})`}
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )
                         )}

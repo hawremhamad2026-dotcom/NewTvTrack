@@ -633,6 +633,10 @@ export function transformTraktMedia(raw: any, type: MediaType): MediaItem {
     imdbId: raw.ids?.imdb,
     runtime: raw.runtime || 0,
     status: raw.status || 'Unknown',
+    inWatchlist: false,
+    isFavorite: false,
+    userRating: null,
+    completed: false,
   };
 }
 

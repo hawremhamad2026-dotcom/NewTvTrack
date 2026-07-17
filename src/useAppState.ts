@@ -206,13 +206,17 @@ export function useAppState() {
     try {
       const pruned = pruneInactiveState(state);
       const dataStr = JSON.stringify(pruned, null, 2);
-      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const filename = `tv_movie_tracker_backup_${new Date().toISOString().slice(0, 10)}.json`;
       
       const linkElement = document.createElement('a');
-      linkElement.setAttribute('href', dataUri);
-      linkElement.setAttribute('download', filename);
+      linkElement.href = url;
+      linkElement.download = filename;
+      document.body.appendChild(linkElement);
       linkElement.click();
+      document.body.removeChild(linkElement);
+      URL.revokeObjectURL(url);
     } catch (e) {
       console.error('Failed to export state:', e);
     }

@@ -46,6 +46,9 @@ export interface MediaItem {
   lastWatchedAt?: string | null; // ISO Date String
   seasons?: Season[];
   imdbId?: string;
+  tmdbId?: number;
+  trailerUrl?: string | null;
+  status?: string;
   cast?: CastMember[];
   directors?: DirectorMember[];
 }
