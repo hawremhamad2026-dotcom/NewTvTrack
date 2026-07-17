@@ -99,6 +99,7 @@ export function useAppState() {
   const [isLoaded, setIsLoaded] = useState(false);
   const isLoadedRef = useRef(false);
   const loadFailedRef = useRef(false);
+  const hasChangesRef = useRef(false);
   const fetchingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -121,6 +122,7 @@ export function useAppState() {
           });
           loadFailedRef.current = false;
           isLoadedRef.current = true;
+          hasChangesRef.current = false;
         } else {
           console.error('Failed to load state from cloud:', res.statusText);
           loadFailedRef.current = true;
@@ -141,12 +143,12 @@ export function useAppState() {
   }, [state]);
 
   const saveState = useCallback(async (currentState: SavedState, isUnloading = false) => {
-    if (!isLoadedRef.current || loadFailedRef.current) {
-      console.warn('[useAppState] Skipping saveState because state has not been successfully loaded from cloud.');
+    if (!isLoadedRef.current || loadFailedRef.current || !hasChangesRef.current) {
       return;
     }
     try {
       const deviceId = deviceIdRef.current;
+      hasChangesRef.current = false;
       
       // Safety prune to ensure inactive data is completely kept off our database
       const pruned = pruneInactiveState(currentState);
@@ -172,9 +174,14 @@ export function useAppState() {
         fetchOptions.keepalive = true;
       }
 
-      await fetch('/api/state', fetchOptions);
+      const res = await fetch('/api/state', fetchOptions);
+      if (!res.ok) {
+        console.error('Failed to save state to cloud:', res.statusText);
+        hasChangesRef.current = true;
+      }
     } catch (e) {
       console.error('Failed to save state to cloud:', e);
+      hasChangesRef.current = true;
     }
   }, []);
 
@@ -205,6 +212,7 @@ export function useAppState() {
   const setState = (
     value: SavedState | ((prev: SavedState) => SavedState)
   ) => {
+    hasChangesRef.current = true;
     setRawState(prev => {
       const resolved = typeof value === 'function' ? value(prev) : value;
       return {
