@@ -93,48 +93,78 @@ export function pruneInactiveState(prev: SavedState): SavedState {
   };
 }
 
-export function useAppState() {
+export function useAppState(isSiteLocked = false) {
   const deviceIdRef = useRef<string>(getDeviceId());
   const [state, setRawState] = useState<SavedState>(getDefaultState);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
   const isLoadedRef = useRef(false);
   const loadFailedRef = useRef(false);
   const hasChangesRef = useRef(false);
   const fetchingRef = useRef<Set<string>>(new Set());
 
+  // Safety refs for data loss prevention
+  const initialLoadedCountRef = useRef({ shows: 0, movies: 0, watchedEpisodes: 0 });
+  const isResettingRef = useRef(false);
+
   useEffect(() => {
+    if (isSiteLocked) return;
+
     const loadState = async () => {
       try {
         const deviceId = deviceIdRef.current;
-        const res = await fetch('/api/state', {
+        // Avoid browser caching of state GET requests
+        const res = await fetch(`/api/state?t=${Date.now()}`, {
           headers: {
             'Authorization': 'Bearer ' + deviceId
           }
         });
         if (res.ok) {
           const data = await res.json();
+          const loadedShows = data.shows || [];
+          const loadedMovies = data.movies || [];
+          const loadedWatched = data.watchedEpisodes || {};
+
+          initialLoadedCountRef.current = {
+            shows: loadedShows.length,
+            movies: loadedMovies.length,
+            watchedEpisodes: Object.keys(loadedWatched).length
+          };
+
           setRawState({
-            shows: Array.from(new Map((data.shows || []).map((s: any) => [s.id, s])).values()),
-            movies: Array.from(new Map((data.movies || []).map((m: any) => [m.id, m])).values()),
-            watchedEpisodes: data.watchedEpisodes || {},
+            shows: Array.from(new Map(loadedShows.map((s: any) => [s.id, s])).values()),
+            movies: Array.from(new Map(loadedMovies.map((m: any) => [m.id, m])).values()),
+            watchedEpisodes: loadedWatched,
             favorites: data.favorites || [],
             updatedAt: Date.now()
           });
           loadFailedRef.current = false;
           isLoadedRef.current = true;
           hasChangesRef.current = false;
+          setLoadFailed(false);
         } else {
           console.error('Failed to load state from cloud:', res.statusText);
           loadFailedRef.current = true;
+          setLoadFailed(true);
         }
       } catch (e) {
         console.error('Failed to load state from cloud:', e);
         loadFailedRef.current = true;
+        setLoadFailed(true);
       } finally {
         setIsLoaded(true);
       }
     };
     loadState();
+  }, [isSiteLocked, refetchTrigger]);
+
+  const retryLoad = useCallback(() => {
+    setIsLoaded(false);
+    setLoadFailed(false);
+    loadFailedRef.current = false;
+    isLoadedRef.current = false;
+    setRefetchTrigger(prev => prev + 1);
   }, []);
 
   const stateRef = useRef(state);
@@ -146,22 +176,48 @@ export function useAppState() {
     if (!isLoadedRef.current || loadFailedRef.current || !hasChangesRef.current) {
       return;
     }
+
+    // Safety prune to ensure inactive data is completely kept off our database
+    const pruned = pruneInactiveState(currentState);
+
+    // Safety guard against saving empty state if the database previously had data
+    const currentShowsCount = pruned.shows.length;
+    const currentMoviesCount = pruned.movies.length;
+    const currentWatchedCount = Object.keys(pruned.watchedEpisodes || {}).length;
+    
+    if (!isResettingRef.current && (
+      (initialLoadedCountRef.current.shows > 0 && currentShowsCount === 0) ||
+      (initialLoadedCountRef.current.watchedEpisodes > 0 && currentWatchedCount === 0)
+    )) {
+      console.warn('[saveState] Blocked saving empty/wiped state to avoid overwriting existing cloud data!');
+      return;
+    }
+
+    const isReset = isResettingRef.current;
+    if (isReset) {
+      isResettingRef.current = false;
+      initialLoadedCountRef.current = { shows: 0, movies: 0, watchedEpisodes: 0 };
+    }
+
     try {
       const deviceId = deviceIdRef.current;
       hasChangesRef.current = false;
       
-      // Safety prune to ensure inactive data is completely kept off our database
-      const pruned = pruneInactiveState(currentState);
-      
       // Strip seasons from shows to prevent huge payloads exceeding browser keepalive limit (64KB)
       const strippedShows = pruned.shows.map(({ seasons, ...s }) => s);
       
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + deviceId
+      };
+
+      if (isReset) {
+        headers['x-force-reset'] = 'true';
+      }
+
       const fetchOptions: RequestInit = {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + deviceId
-        },
+        headers,
         body: JSON.stringify({
           shows: strippedShows,
           movies: pruned.movies,
@@ -771,6 +827,7 @@ export function useAppState() {
 
   // Reset all user progress to zero (clear watchlist, completed, stopped, ratings, watched history, favorites)
   const resetAllProgress = () => {
+    isResettingRef.current = true;
     setState({
       shows: state.shows.map(s => ({
         ...s,
@@ -1038,6 +1095,8 @@ export function useAppState() {
 
   return {
     isLoaded,
+    loadFailed,
+    retryLoad,
     shows: computedData.shows,
     movies: computedData.movies,
     watchedEpisodes: state.watchedEpisodes,

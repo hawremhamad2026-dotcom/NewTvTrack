@@ -15,6 +15,9 @@ import { eq, and } from "drizzle-orm";
 
 const localDb = loadDb();
 
+// Mutex queues to serialize state save transactions per user/device and prevent concurrent database overlap
+const userMutexes = new Map<string, Promise<any>>();
+
 
 
 let geminiClient: GoogleGenAI | null = null;
@@ -812,11 +815,60 @@ async function startServer() {
   // API: Update complete state
   app.post("/api/state", authMiddleware, async (req, res) => {
     const deviceId = (req as any).deviceId;
-    const { shows, movies, watchedEpisodes: watchedEpsData, favorites } = req.body;
-    
-    try {
-      const allItems: any[] = [];
+
+    // Retrieve or initialize the queue for this user/device
+    const currentPromise = userMutexes.get(deviceId) || Promise.resolve();
+
+    // Schedule this write task in the user's serialization queue
+    const nextPromise = currentPromise.then(async () => {
+      const { shows, movies, watchedEpisodes: watchedEpsData, favorites } = req.body;
+      
       const uniqueShows = shows && Array.isArray(shows) ? Array.from(new Map(shows.map((s: any) => [s.id, s])).values()) : [];
+      const uniqueMovies = movies && Array.isArray(movies) ? Array.from(new Map(movies.map((m: any) => [m.id, m])).values()) : [];
+      
+      // Update watched episodes
+      const epsToInsert: any[] = [];
+      if (watchedEpsData && typeof watchedEpsData === 'object') {
+         Object.keys(watchedEpsData).forEach(showIdStr => {
+           const showId = Number(showIdStr);
+           if (isNaN(showId) || showId <= 0) return;
+           const eps = watchedEpsData[showId];
+           if (eps && typeof eps === 'object') {
+             Object.keys(eps).forEach(epKey => {
+               if (eps[epKey]) {
+                 epsToInsert.push({
+                   userId: deviceId,
+                   showId,
+                   episodeKey: epKey,
+                   watchedAt: new Date()
+                 });
+               }
+             });
+           }
+         });
+      }
+
+      // Backend Safety Guard: Prevent accidental empty state wipe/overwrite of existing data
+      let hasExistingData = false;
+      if (getUsePostgres()) {
+        const db = getDb();
+        const existingCount = await db.select().from(mediaItems).where(eq(mediaItems.userId, deviceId));
+        if (existingCount.length > 0) {
+          hasExistingData = true;
+        }
+      } else {
+        hasExistingData = localDb.mediaItems.some(i => i.userId === deviceId);
+      }
+
+      const isReset = req.headers['x-force-reset'] === 'true';
+      const incomingEmpty = uniqueShows.length === 0 && uniqueMovies.length === 0 && epsToInsert.length === 0;
+
+      if (hasExistingData && incomingEmpty && !isReset) {
+        console.warn(`[API Guard] Blocked incoming empty state save for user ${deviceId} to prevent accidental wipe!`);
+        return; // Return silently, no database changes
+      }
+
+      const allItems: any[] = [];
       if (uniqueShows.length > 0) {
         uniqueShows.forEach((show: any) => {
           allItems.push({
@@ -847,7 +899,6 @@ async function startServer() {
         });
       }
       
-      const uniqueMovies = movies && Array.isArray(movies) ? Array.from(new Map(movies.map((m: any) => [m.id, m])).values()) : [];
       if (uniqueMovies.length > 0) {
         uniqueMovies.forEach((movie: any) => {
           allItems.push({
@@ -884,28 +935,6 @@ async function startServer() {
            }
          });
       }
-      
-      // Update watched episodes
-      const epsToInsert: any[] = [];
-      if (watchedEpsData && typeof watchedEpsData === 'object') {
-         Object.keys(watchedEpsData).forEach(showIdStr => {
-           const showId = Number(showIdStr);
-           if (isNaN(showId) || showId <= 0) return;
-           const eps = watchedEpsData[showId];
-           if (eps && typeof eps === 'object') {
-             Object.keys(eps).forEach(epKey => {
-               if (eps[epKey]) {
-                 epsToInsert.push({
-                   userId: deviceId,
-                   showId,
-                   episodeKey: epKey,
-                   watchedAt: new Date()
-                 });
-               }
-             });
-           }
-         });
-      }
 
       if (getUsePostgres()) {
         const db = getDb();
@@ -936,10 +965,15 @@ async function startServer() {
         
         saveDb(localDb);
       }
-      
+    });
+
+    userMutexes.set(deviceId, nextPromise);
+
+    try {
+      await nextPromise;
       res.json({ success: true });
     } catch (error) {
-      console.error('Error saving state:', error);
+      console.error('Error in serialized save task:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
