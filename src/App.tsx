@@ -455,7 +455,10 @@ export default function App() {
 
     // 2. Rating filter
     if (profileRating > 0) {
-      result = result.filter(item => item.rating >= profileRating);
+      result = result.filter(item => {
+        const ratingVal = item.userRating !== null && item.userRating !== undefined ? item.userRating : item.rating;
+        return ratingVal && Math.floor(ratingVal) === profileRating;
+      });
     }
 
     // 3. Release Year filter
@@ -469,7 +472,14 @@ export default function App() {
 
     // 4. Sorting
     if (profileSort === 'rating') {
-      result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      result.sort((a, b) => {
+        const ratingA = a.userRating !== null && a.userRating !== undefined ? a.userRating : (a.rating || 0);
+        const ratingB = b.userRating !== null && b.userRating !== undefined ? b.userRating : (b.rating || 0);
+        if (ratingB !== ratingA) {
+          return ratingB - ratingA;
+        }
+        return a.title.localeCompare(b.title);
+      });
     } else if (profileSort === 'release_date') {
       result.sort((a, b) => {
         const dateA = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
@@ -2383,11 +2393,11 @@ export default function App() {
                         </select>
                       </div>
 
-                      {/* Minimum Rating dropdown */}
+                      {/* Rating dropdown */}
                       <div className="flex flex-col gap-1.5 flex-1 min-w-[120px]">
                         <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider font-mono flex items-center gap-1 flex-row">
                           <Award className="w-3 h-3 text-amber-500" />
-                          Min Rating
+                          Rating
                         </span>
                         <select
                           value={profileRating}
@@ -2395,11 +2405,16 @@ export default function App() {
                           className="bg-zinc-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-zinc-200 outline-none focus:border-amber-500/40 transition-colors cursor-pointer w-full"
                         >
                           <option value="0">All Ratings</option>
-                          <option value="9">★ 9.0+ Excellent</option>
-                          <option value="8">★ 8.0+ Very Good</option>
-                          <option value="7">★ 7.0+ Good</option>
-                          <option value="6">★ 6.0+ Above Average</option>
-                          <option value="5">★ 5.0+ Average</option>
+                          <option value="10">★ 10 Masterpiece</option>
+                          <option value="9">★ 9 Superb</option>
+                          <option value="8">★ 8 Excellent</option>
+                          <option value="7">★ 7 Good</option>
+                          <option value="6">★ 6 Fine</option>
+                          <option value="5">★ 5 Average</option>
+                          <option value="4">★ 4 Disappointing</option>
+                          <option value="3">★ 3 Bad</option>
+                          <option value="2">★ 2 Very Bad</option>
+                          <option value="1">★ 1 Horrible</option>
                         </select>
                       </div>
 

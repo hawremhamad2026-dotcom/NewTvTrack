@@ -104,12 +104,17 @@ export function MediaCard({
         </div>
 
         {/* Floating rating overlay */}
-        {item.rating > 0 && (
-          <div className={`absolute left-2 flex items-center gap-1 px-2 py-0.5 bg-black/75 backdrop-blur-md border border-white/5 rounded-md text-[11px] font-medium text-amber-500 transition-all ${countdown ? 'bottom-11 z-20' : 'bottom-2'}`}>
+        {(item.userRating !== null && item.userRating !== undefined) ? (
+          <div className={`absolute left-2 flex items-center gap-1 px-2 py-0.5 bg-amber-500 text-zinc-950 font-bold rounded-md text-[11px] transition-all z-10 ${countdown ? 'bottom-11' : 'bottom-2'}`}>
+            <Star className="w-3 h-3 fill-zinc-950 text-zinc-950" />
+            <span>{item.userRating}</span>
+          </div>
+        ) : (item.rating > 0 && (
+          <div className={`absolute left-2 flex items-center gap-1 px-2 py-0.5 bg-black/75 backdrop-blur-md border border-white/5 rounded-md text-[11px] font-medium text-amber-500 transition-all z-10 ${countdown ? 'bottom-11' : 'bottom-2'}`}>
             <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
             <span>{item.rating}</span>
           </div>
-        )}
+        ))}
 
         {/* Floating countdown overlay */}
         {countdown && (
