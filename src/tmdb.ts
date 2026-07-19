@@ -46,7 +46,7 @@ async function tmdbFetch(endpoint: string, params: Record<string, string> = {}):
 
     return await response.json();
   } catch (error) {
-    console.error(`Error fetching from TMDB endpoint ${endpoint}:`, error);
+    console.warn(`Error fetching from TMDB endpoint ${endpoint}:`, error);
     throw error;
   }
 }
@@ -163,7 +163,7 @@ export async function fetchTrending(
         return blended;
       }
     } catch (importError) {
-      console.error('Failed to load local trending fallbacks:', importError);
+      console.warn('Failed to load local trending fallbacks:', importError);
       return [];
     }
   }
@@ -341,7 +341,7 @@ export async function fetchDiscover(
       
       return sortedItems;
     } catch (importError) {
-      console.error('Failed to load local fallbacks:', importError);
+      console.warn('Failed to load local fallbacks:', importError);
       return [];
     }
   }
@@ -364,7 +364,7 @@ export async function fetchPopular(type: MediaType, page: number = 1): Promise<M
       const { INITIAL_SHOWS, INITIAL_MOVIES } = await import('./data');
       return type === 'show' ? INITIAL_SHOWS.slice(0, 10) : INITIAL_MOVIES.slice(0, 10);
     } catch (importError) {
-      console.error('Failed to load local popular fallback:', importError);
+      console.warn('Failed to load local popular fallback:', importError);
       return [];
     }
   }
@@ -612,7 +612,7 @@ export async function fetchTraktList(
       return transformTraktMedia(raw, mediaType);
     });
   } catch (error) {
-    console.error(`Error fetching Trakt ${listType} for ${mediaType}:`, error);
+    console.warn(`Error fetching Trakt ${listType} for ${mediaType}:`, error);
     return [];
   }
 }
@@ -639,5 +639,57 @@ export function transformTraktMedia(raw: any, type: MediaType): MediaItem {
     completed: false,
   };
 }
+
+/**
+ * Find or search for a media item by IMDb ID or Title and Type.
+ * Extremely robust helper for imports.
+ */
+export async function findOrSearchMediaItem(
+  title: string,
+  type: MediaType,
+  imdbId?: string
+): Promise<MediaItem | null> {
+  // 1. Try finding by IMDb ID if available
+  if (imdbId && imdbId.startsWith('tt')) {
+    try {
+      const data = await tmdbFetch(`/find/${imdbId}`, { external_source: 'imdb_id' });
+      if (type === 'movie' && data.movie_results && data.movie_results.length > 0) {
+        return transformMedia(data.movie_results[0], 'movie');
+      }
+      if (type === 'show' && data.tv_results && data.tv_results.length > 0) {
+        return transformMedia(data.tv_results[0], 'show');
+      }
+      // If type mismatch but we found a result, trust the TMDB type
+      if (data.movie_results && data.movie_results.length > 0) {
+        return transformMedia(data.movie_results[0], 'movie');
+      }
+      if (data.tv_results && data.tv_results.length > 0) {
+        return transformMedia(data.tv_results[0], 'show');
+      }
+    } catch (err) {
+      console.warn(`Find by IMDb ID ${imdbId} failed, falling back to search`, err);
+    }
+  }
+
+  // 2. Search by Title
+  try {
+    const tmdbType = type === 'show' ? 'tv' : 'movie';
+    const data = await tmdbFetch(`/search/${tmdbType}`, { query: title });
+    if (data.results && data.results.length > 0) {
+      // Find exact or closest match
+      const matched = data.results.find((r: any) => {
+        const rTitle = r.title || r.name || '';
+        return rTitle.toLowerCase() === title.toLowerCase();
+      }) || data.results[0];
+      
+      return transformMedia(matched, type);
+    }
+  } catch (err) {
+    console.warn(`Search failed for ${title} (${type})`, err);
+  }
+
+  return null;
+}
+
 
 

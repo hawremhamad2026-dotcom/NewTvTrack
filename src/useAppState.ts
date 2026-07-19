@@ -144,12 +144,12 @@ export function useAppState(isSiteLocked = false) {
           hasChangesRef.current = false;
           setLoadFailed(false);
         } else {
-          console.error('Failed to load state from cloud:', res.statusText);
+          console.warn('Failed to load state from cloud:', res.statusText);
           loadFailedRef.current = true;
           setLoadFailed(true);
         }
       } catch (e) {
-        console.error('Failed to load state from cloud:', e);
+        console.warn('Failed to load state from cloud:', e);
         loadFailedRef.current = true;
         setLoadFailed(true);
       } finally {
@@ -232,11 +232,11 @@ export function useAppState(isSiteLocked = false) {
 
       const res = await fetch('/api/state', fetchOptions);
       if (!res.ok) {
-        console.error('Failed to save state to cloud:', res.statusText);
+        console.warn('Failed to save state to cloud:', res.statusText);
         hasChangesRef.current = true;
       }
     } catch (e) {
-      console.error('Failed to save state to cloud:', e);
+      console.warn('Failed to save state to cloud:', e);
       hasChangesRef.current = true;
     }
   }, []);
@@ -294,7 +294,7 @@ export function useAppState(isSiteLocked = false) {
       document.body.removeChild(linkElement);
       URL.revokeObjectURL(url);
     } catch (e) {
-      console.error('Failed to export state:', e);
+      console.warn('Failed to export state:', e);
     }
   };
 
@@ -899,6 +899,71 @@ export function useAppState(isSiteLocked = false) {
     });
   };
 
+  // Bulk import multiple items matching from IMDb CSV
+  const importMultipleMediaItems = (
+    itemsToImport: {
+      item: MediaItem;
+      rating: number | null;
+      makeFavorite: boolean;
+      completed: boolean;
+    }[]
+  ) => {
+    setState(prev => {
+      let updatedShows = [...prev.shows];
+      let updatedMovies = [...prev.movies];
+      let updatedFavorites = [...prev.favorites];
+
+      itemsToImport.forEach(({ item, rating, makeFavorite, completed }) => {
+        const enrichedItem = {
+          ...item,
+          userRating: rating,
+          inWatchlist: true,
+          completed: completed,
+          lastWatchedAt: completed ? new Date().toISOString() : null,
+        };
+
+        if (item.type === 'show') {
+          const idx = updatedShows.findIndex(s => s.id === item.id);
+          if (idx >= 0) {
+            updatedShows[idx] = {
+              ...updatedShows[idx],
+              ...enrichedItem,
+              userRating: rating !== null ? rating : updatedShows[idx].userRating,
+              completed: completed,
+            };
+          } else {
+            updatedShows.push(enrichedItem);
+          }
+        } else {
+          const idx = updatedMovies.findIndex(m => m.id === item.id);
+          if (idx >= 0) {
+            updatedMovies[idx] = {
+              ...updatedMovies[idx],
+              ...enrichedItem,
+              userRating: rating !== null ? rating : updatedMovies[idx].userRating,
+              completed: completed,
+            };
+          } else {
+            updatedMovies.push(enrichedItem);
+          }
+        }
+
+        if (makeFavorite && !updatedFavorites.includes(item.id)) {
+          updatedFavorites.push(item.id);
+        }
+      });
+
+      return {
+        ...prev,
+        shows: updatedShows,
+        movies: updatedMovies,
+        favorites: updatedFavorites,
+        updatedAt: Date.now(),
+      };
+    });
+  };
+
+
   // Compute calculated values based on current time (July 9, 2026)
   const computedData = useMemo(() => {
     const CURRENT_TIME = new Date();
@@ -1138,6 +1203,7 @@ export function useAppState(isSiteLocked = false) {
     toggleSeasonCompleted,
     toggleStoppedWatching,
     importMediaItem,
+    importMultipleMediaItems,
     resetAllProgress,
   };
 }

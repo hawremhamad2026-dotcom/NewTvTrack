@@ -3362,8 +3362,8 @@ export function DetailModal({
                 <span className="text-xs font-semibold uppercase text-zinc-500 tracking-wider">
                   {item.userRating ? 'Your Personal Rating' : 'Rate This Title'}
                 </span>
-                <div className="flex items-center gap-1.5">
-                  {[1, 2, 3, 4, 5].map((stars) => {
+                <div className="flex flex-wrap items-center justify-center gap-1">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((stars) => {
                     const isSelected = (hoverRating !== null ? hoverRating : (item.userRating || 0)) >= stars;
                     return (
                       <button
@@ -3372,22 +3372,33 @@ export function DetailModal({
                         onClick={() => handleRatingClick(stars)}
                         onMouseEnter={() => setHoverRating(stars)}
                         onMouseLeave={() => setHoverRating(null)}
-                        className="p-1 cursor-pointer hover:scale-110 transition-transform duration-100 focus:outline-none"
+                        className="p-0.5 cursor-pointer hover:scale-125 transition-transform duration-100 focus:outline-none"
+                        title={`${stars}/10`}
                       >
                         <Star
-                          className={`w-7 h-7 stroke-amber-500 transition-all ${
+                          className={`w-5.5 h-5.5 stroke-amber-500 transition-all ${
                             isSelected 
                               ? 'fill-amber-500 text-amber-500' 
-                              : 'text-zinc-700'
+                              : 'text-zinc-700 hover:text-amber-500/50'
                           }`}
                         />
                       </button>
                     );
                   })}
                 </div>
-                {item.userRating && (
-                  <span className="text-xs font-bold text-amber-500 animate-fade-in">
-                    {item.userRating === 5 ? 'Excellent!' : item.userRating === 4 ? 'Great!' : item.userRating === 3 ? 'Good' : item.userRating === 2 ? 'Fair' : 'Poor'}
+                {(hoverRating !== null || item.userRating) && (
+                  <span className="text-xs font-bold text-amber-500 animate-fade-in font-mono">
+                    {hoverRating !== null ? hoverRating : item.userRating}/10 - {
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 10 ? 'Masterpiece!' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 9 ? 'Superb!' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 8 ? 'Excellent!' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 7 ? 'Good!' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 6 ? 'Fine' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 5 ? 'Average' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 4 ? 'Disappointing' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 3 ? 'Bad' :
+                      (hoverRating !== null ? hoverRating : (item.userRating || 0)) === 2 ? 'Very Bad' : 'Horrible!'
+                    }
                   </span>
                 )}
               </div>
