@@ -714,3 +714,25 @@ export async function fetchMediaRecommendations(
 
 
 
+
+export async function fetchKurdcinemaSearch(query: string, type: 'movie' | 'series' | 'all' = 'all'): Promise<any[]> {
+  try {
+    const response = await fetch(`/api/kurdcinema/search?q=${encodeURIComponent(query)}&type=${type}`);
+    if (!response.ok) return [];
+    return await response.json();
+  } catch (err) {
+    console.error('Failed to fetch kurdcinema search', err);
+    return [];
+  }
+}
+
+export async function fetchKurdcinemaComments(url: string, type: 'movie' | 'series' = 'movie'): Promise<any> {
+  try {
+    const response = await fetch(`/api/kurdcinema/comments?url=${encodeURIComponent(url)}&type=${type}`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (err) {
+    console.error('Failed to fetch kurdcinema comments', err);
+    return null;
+  }
+}
