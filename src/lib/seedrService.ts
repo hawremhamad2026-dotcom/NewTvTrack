@@ -231,13 +231,83 @@ export class SeedrClient {
   }
 
   /**
+   * Cleans and strips common torrent tags/metadata to isolate the core title and year
+   */
+  private cleanTorrentTitle(title: string): string {
+    let clean = title.toLowerCase();
+    
+    // Replace dots, underscores, dashes, brackets with spaces to create clear word boundaries
+    clean = clean.replace(/[\.\_\-\[\]\(\)\{\}\+\/]/g, ' ');
+    
+    // Words/tags to remove
+    const tagsToRemove = [
+      '1080p', '720p', '480p', '360p', '2160p', '4k', '3d',
+      'bluray', 'brrip', 'bdrip', 'dvdrip', 'webdl', 'webrip', 'web', 'hdtv', 'hdrip', 'screener', 'camrip', 'cam',
+      'x264', 'h264', 'x265', 'hevc', 'divx', 'xvid',
+      'yify', 'yts', 'ytsmx', 'psa', 'galaxyrg', 'tgx', 'rarbg', 'eztv', 'yoku', 'qxr', 'utr',
+      'aac', 'dts', 'dd51', 'ac3', 'dualaudio', 'multiaudio', 'multi', 'dual', 'atmos', 'truehd',
+      'sub', 'subs', 'subbed', 'dubbed', 'imax', 'extended', 'directoricut', 'unrated', 'remastered',
+      'rpp', 'ita', 'eng', 'fre', 'rus', 'ger', 'spa', 'fra', 'deu', 'rd'
+    ];
+    
+    // Remove tags as whole words
+    for (const tag of tagsToRemove) {
+      const regex = new RegExp(`\\b${tag}\\b`, 'gi');
+      clean = clean.replace(regex, ' ');
+    }
+    
+    // Finally, normalize what remains by removing all non-alphanumeric characters
+    return clean.replace(/[^a-z0-9]/g, '').trim();
+  }
+
+  /**
+   * Robust title matching helper
+   */
+  private titlesMatch(titleA: string, titleB: string): boolean {
+    if (!titleA || !titleB) return false;
+    
+    const normA = this.normalizeString(titleA);
+    const normB = this.normalizeString(titleB);
+    
+    if (!normA || !normB) return false;
+    
+    // Direct or substring match on normalized names
+    if (normA.includes(normB) || normB.includes(normA)) {
+      return true;
+    }
+    
+    // Match on core cleaned titles (stripping release tags/groups)
+    const coreA = this.cleanTorrentTitle(titleA);
+    const coreB = this.cleanTorrentTitle(titleB);
+    
+    if (coreA && coreB && (coreA === coreB || coreA.includes(coreB) || coreB.includes(coreA))) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Strict title matching helper to ensure precise release matches (e.g. 1080p vs 720p)
+   */
+  private strictTitlesMatch(titleA: string, titleB: string): boolean {
+    if (!titleA || !titleB) return false;
+    
+    const normA = this.normalizeString(titleA);
+    const normB = this.normalizeString(titleB);
+    
+    if (!normA || !normB) return false;
+    
+    return normA === normB || normA.includes(normB) || normB.includes(normA);
+  }
+
+  /**
    * Checks if a stream exists in Seedr account and gets its status/URLs
    */
   async checkStreamStatus(infoHash: string, title: string): Promise<SeedrStatusResponse> {
     try {
       const root = await this.getRootContents();
       const cleanInfoHash = infoHash.toLowerCase().trim();
-      const cleanTitle = this.normalizeString(title);
 
       // 1. Check if it's currently downloading/queued in torrents
       if (root.torrents && Array.isArray(root.torrents)) {
@@ -245,11 +315,7 @@ export class SeedrClient {
           const tHash = (t.hash || t.info_hash || '').toLowerCase().trim();
           if (tHash && tHash === cleanInfoHash) return true;
           
-          const tNameClean = this.normalizeString(t.name || '');
-          if (cleanTitle && tNameClean && (tNameClean.includes(cleanTitle) || cleanTitle.includes(tNameClean))) {
-            return true;
-          }
-          return false;
+          return this.strictTitlesMatch(t.name || '', title);
         });
 
         if (matchingTorrent) {
@@ -271,8 +337,7 @@ export class SeedrClient {
       // 2. Check root files for a direct match
       if (root.files && Array.isArray(root.files)) {
         const matchingFile = root.files.find(f => {
-          const fNameClean = this.normalizeString(f.name || '');
-          return fNameClean && (fNameClean.includes(cleanTitle) || cleanTitle.includes(fNameClean));
+          return this.strictTitlesMatch(f.name || '', title);
         });
 
         if (matchingFile) {
@@ -297,8 +362,7 @@ export class SeedrClient {
       if (root.folders && Array.isArray(root.folders)) {
         // Find matching folders
         const matchingFolders = root.folders.filter(folder => {
-          const folderNameClean = this.normalizeString(folder.name || '');
-          return folderNameClean && (folderNameClean.includes(cleanTitle) || cleanTitle.includes(folderNameClean));
+          return this.strictTitlesMatch(folder.name || '', title);
         });
 
         if (matchingFolders.length > 0) {

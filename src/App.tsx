@@ -248,7 +248,7 @@ export default function App() {
   const [exploreSubTab, setExploreSubTab] = useState<'discover' | 'trakt'>('discover');
 
   // Personalized Recommendations state
-  const [recommendations, setRecommendations] = useState<MediaItem[]>([]);
+  const [rawRecommendations, setRawRecommendations] = useState<MediaItem[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState<boolean>(false);
   const [recommendationRefreshCounter, setRecommendationRefreshCounter] = useState<number>(0);
   const [dismissedRecs, setDismissedRecs] = useState<string[]>(() => {
@@ -266,6 +266,29 @@ export default function App() {
     setDismissedRecs(updated);
     localStorage.setItem('dismissed_recommendations', JSON.stringify(updated));
   };
+
+  // Derive filtered recommendations stably
+  const recommendations = useMemo(() => {
+    // Filter out dismissed recommendations
+    let filtered = rawRecommendations.filter(item => !dismissedRecs.includes(`${item.type}-${item.id}`));
+    
+    // Filter out items that are already watched or in watchlist
+    const watchedOrWatchlistIds = new Set<string>();
+    state.shows.forEach(s => {
+      if (s.completed || s.inWatchlist) {
+        watchedOrWatchlistIds.add(`show-${s.id}`);
+      }
+    });
+    state.movies.forEach(m => {
+      if (m.completed || m.inWatchlist) {
+        watchedOrWatchlistIds.add(`movie-${m.id}`);
+      }
+    });
+    
+    filtered = filtered.filter(item => !watchedOrWatchlistIds.has(`${item.type}-${item.id}`));
+    
+    return filtered.slice(0, 15);
+  }, [rawRecommendations, dismissedRecs, state.shows, state.movies]);
 
   // Trakt specific states
   const [traktMediaType, setTraktMediaType] = useState<MediaType>('movie');
@@ -665,28 +688,10 @@ export default function App() {
         
         let finalRecs = Array.from(uniqueResultsMap.values());
         
-        // Filter out dismissed recommendations
-        finalRecs = finalRecs.filter(item => !dismissedRecs.includes(`${item.type}-${item.id}`));
-        
-        // Filter out items that are already watched or in watchlist
-        const watchedOrWatchlistIds = new Set<string>();
-        state.shows.forEach(s => {
-          if (s.completed || s.inWatchlist) {
-            watchedOrWatchlistIds.add(`show-${s.id}`);
-          }
-        });
-        state.movies.forEach(m => {
-          if (m.completed || m.inWatchlist) {
-            watchedOrWatchlistIds.add(`movie-${m.id}`);
-          }
-        });
-        
-        finalRecs = finalRecs.filter(item => !watchedOrWatchlistIds.has(`${item.type}-${item.id}`));
-        
-        // Shuffle the results to keep recommendations dynamic and organic
+        // Shuffle the results to keep recommendations dynamic and organic, stable in state until next refresh
         finalRecs = [...finalRecs].sort(() => Math.random() - 0.5);
         
-        setRecommendations(finalRecs.slice(0, 15));
+        setRawRecommendations(finalRecs);
       } catch (err) {
         console.warn('Failed to generate personalized recommendations:', err);
       } finally {
@@ -701,7 +706,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [state.shows, state.movies, state.favorites, watchHistory, trendingWeekly, popularItems, recommendationRefreshCounter, dismissedRecs]);
+  }, [trendingWeekly, popularItems, recommendationRefreshCounter]);
 
   // Handle Discover Type Selection (TV Series vs Movies)
   const handleDiscoverTypeSelect = async (type: MediaType) => {
