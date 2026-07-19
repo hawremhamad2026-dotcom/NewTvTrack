@@ -44,6 +44,9 @@ export interface MediaItem {
   completed: boolean; // Movies: watched; TV shows: all episodes watched
   stoppedWatching?: boolean; // TV shows: user stopped watching
   lastWatchedAt?: string | null; // ISO Date String
+  completedAt?: string | null;
+  favoritedAt?: string | null;
+  stoppedWatchingAt?: string | null;
   seasons?: Season[];
   imdbId?: string;
   tmdbId?: number;

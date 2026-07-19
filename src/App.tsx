@@ -276,7 +276,13 @@ export default function App() {
   const [visibleActors, setVisibleActors] = useState(5);
   const [visibleDirectors, setVisibleDirectors] = useState(5);
 
-  // Reset limits when tabs are changed for fresh/fast page rendering
+  // Profile filter & sorting states
+  const [profileGenre, setProfileGenre] = useState<string>('All');
+  const [profileRating, setProfileRating] = useState<number>(0);
+  const [profileYear, setProfileYear] = useState<string>('All');
+  const [profileSort, setProfileSort] = useState<'date_added' | 'rating' | 'release_date' | 'title'>('date_added');
+
+  // Reset limits and filters when tabs are changed for fresh/fast page rendering
   useEffect(() => {
     setVisibleCompletedTV(12);
     setVisibleCompletedMovies(12);
@@ -285,6 +291,10 @@ export default function App() {
     setVisibleStoppedWatching(12);
     setVisibleActors(5);
     setVisibleDirectors(5);
+    setProfileGenre('All');
+    setProfileRating(0);
+    setProfileYear('All');
+    setProfileSort('date_added');
   }, [profileListTab]);
   const [syncIdInput, setSyncIdInput] = useState('');
   const [isEditingSyncId, setIsEditingSyncId] = useState(false);
@@ -397,6 +407,81 @@ export default function App() {
       directors: filteredDirectors
     };
   }, [state.shows, state.movies, state.watchedEpisodes]);
+
+  // Dynamically filter and sort whichever list is active in the Profile tab
+  const activeListItems = useMemo(() => {
+    if (profileListTab === 'completed_tv') return state.completedTVShows;
+    if (profileListTab === 'completed_movies') return state.completedMovies;
+    if (profileListTab === 'fav_tv') return state.favoriteTVShows;
+    if (profileListTab === 'fav_movies') return state.favoriteMovies;
+    if (profileListTab === 'stopped_watching') return state.stoppedWatchingTVShows;
+    return [];
+  }, [profileListTab, state]);
+
+  // Dynamically extract genres from active list items
+  const availableGenres = useMemo(() => {
+    const genresSet = new Set<string>();
+    activeListItems.forEach(item => {
+      if (item.genres) {
+        item.genres.forEach(g => genresSet.add(g));
+      }
+    });
+    return ['All', ...Array.from(genresSet).sort()];
+  }, [activeListItems]);
+
+  // Dynamically extract release years from active list items
+  const availableYears = useMemo(() => {
+    const yearsSet = new Set<string>();
+    activeListItems.forEach(item => {
+      if (item.releaseDate) {
+        const year = item.releaseDate.split('-')[0];
+        if (year && year.length === 4) {
+          yearsSet.add(year);
+        }
+      }
+    });
+    return ['All', ...Array.from(yearsSet).sort((a, b) => b.localeCompare(a))];
+  }, [activeListItems]);
+
+  const filteredProfileItems = useMemo(() => {
+    let result = [...activeListItems];
+
+    // 1. Genre filter
+    if (profileGenre !== 'All') {
+      result = result.filter(item => 
+        item.genres && item.genres.some(g => g.toLowerCase() === profileGenre.toLowerCase())
+      );
+    }
+
+    // 2. Rating filter
+    if (profileRating > 0) {
+      result = result.filter(item => item.rating >= profileRating);
+    }
+
+    // 3. Release Year filter
+    if (profileYear !== 'All') {
+      result = result.filter(item => {
+        if (!item.releaseDate) return false;
+        const year = item.releaseDate.split('-')[0];
+        return year === profileYear;
+      });
+    }
+
+    // 4. Sorting
+    if (profileSort === 'rating') {
+      result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (profileSort === 'release_date') {
+      result.sort((a, b) => {
+        const dateA = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
+        const dateB = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
+        return dateB - dateA;
+      });
+    } else if (profileSort === 'title') {
+      result.sort((a, b) => a.title.localeCompare(b.title));
+    }
+
+    return result;
+  }, [activeListItems, profileGenre, profileRating, profileYear, profileSort]);
 
   useEffect(() => {
     if (isLightMode) {
@@ -2277,6 +2362,85 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* PROFILE FILTERS BAR */}
+                {profileListTab !== 'creator_cast' && activeListItems.length > 0 && (
+                  <div className="bg-[#0A0A0A]/40 border border-white/5 rounded-2xl p-4 gap-4 flex flex-col md:flex-row md:items-end justify-between animate-fade-in">
+                    <div className="flex flex-col sm:flex-row gap-4 flex-1">
+                      {/* Genre dropdown */}
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[120px]">
+                        <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider font-mono flex items-center gap-1">
+                          <Filter className="w-3 h-3 text-amber-500" />
+                          Genre
+                        </span>
+                        <select
+                          value={profileGenre}
+                          onChange={(e) => setProfileGenre(e.target.value)}
+                          className="bg-zinc-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-zinc-200 outline-none focus:border-amber-500/40 transition-colors cursor-pointer w-full"
+                        >
+                          {availableGenres.map(g => (
+                            <option key={g} value={g}>{g}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Minimum Rating dropdown */}
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[120px]">
+                        <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider font-mono flex items-center gap-1 flex-row">
+                          <Award className="w-3 h-3 text-amber-500" />
+                          Min Rating
+                        </span>
+                        <select
+                          value={profileRating}
+                          onChange={(e) => setProfileRating(Number(e.target.value))}
+                          className="bg-zinc-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-zinc-200 outline-none focus:border-amber-500/40 transition-colors cursor-pointer w-full"
+                        >
+                          <option value="0">All Ratings</option>
+                          <option value="9">★ 9.0+ Excellent</option>
+                          <option value="8">★ 8.0+ Very Good</option>
+                          <option value="7">★ 7.0+ Good</option>
+                          <option value="6">★ 6.0+ Above Average</option>
+                          <option value="5">★ 5.0+ Average</option>
+                        </select>
+                      </div>
+
+                      {/* Release Year dropdown */}
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[120px]">
+                        <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider font-mono flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-amber-500" />
+                          Release Year
+                        </span>
+                        <select
+                          value={profileYear}
+                          onChange={(e) => setProfileYear(e.target.value)}
+                          className="bg-zinc-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-zinc-200 outline-none focus:border-amber-500/40 transition-colors cursor-pointer w-full"
+                        >
+                          {availableYears.map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Sorting dropdown */}
+                    <div className="flex flex-col gap-1.5 md:w-[180px]">
+                      <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider font-mono flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-amber-500" />
+                        Sort Order
+                      </span>
+                      <select
+                        value={profileSort}
+                        onChange={(e) => setProfileSort(e.target.value as any)}
+                        className="bg-zinc-950 border border-white/5 rounded-xl py-2 px-3 text-xs text-zinc-200 outline-none focus:border-amber-500/40 transition-colors cursor-pointer w-full font-semibold"
+                      >
+                        <option value="date_added">Date Added (Newest)</option>
+                        <option value="rating">Rating (Highest)</option>
+                        <option value="release_date">Release Date (Newest)</option>
+                        <option value="title">Title (A-Z)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
                 {/* RENDER DYNAMIC LIST SELECTED */}
                 <div>
                   
@@ -2508,15 +2672,46 @@ export default function App() {
 
                   {/* 1. Completed TV Shows */}
                   {profileListTab === 'completed_tv' && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 animate-fade-in">
                       {state.completedTVShows.length === 0 ? (
                         <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
                           No completed TV shows yet. Mark all episodes of a series as watched!
                         </div>
+                      ) : filteredProfileItems.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20 space-y-3">
+                          <p>No completed TV shows match your filters.</p>
+                          <button
+                            onClick={() => {
+                              setProfileGenre('All');
+                              setProfileRating(0);
+                              setProfileYear('All');
+                              setProfileSort('date_added');
+                            }}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-450 rounded-xl text-xs font-bold text-black transition-all cursor-pointer"
+                          >
+                            Reset Filters
+                          </button>
+                        </div>
                       ) : (
                         <div className="space-y-4">
+                          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono px-1">
+                            <span>Showing {filteredProfileItems.length} of {state.completedTVShows.length} shows</span>
+                            {(profileGenre !== 'All' || profileRating > 0 || profileYear !== 'All' || profileSort !== 'date_added') && (
+                              <button 
+                                onClick={() => {
+                                  setProfileGenre('All');
+                                  setProfileRating(0);
+                                  setProfileYear('All');
+                                  setProfileSort('date_added');
+                                }}
+                                className="text-amber-500 hover:underline cursor-pointer"
+                              >
+                                Clear filters
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                            {state.completedTVShows.slice(0, visibleCompletedTV).map(show => {
+                            {filteredProfileItems.slice(0, visibleCompletedTV).map(show => {
                               const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
                               return (
                                 <MediaCard
@@ -2533,7 +2728,7 @@ export default function App() {
                               );
                             })}
                           </div>
-                          {state.completedTVShows.length > visibleCompletedTV && (
+                          {filteredProfileItems.length > visibleCompletedTV && (
                             <div className="flex justify-center pt-2">
                               <button
                                 onClick={() => setVisibleCompletedTV(prev => prev + 12)}
@@ -2550,15 +2745,46 @@ export default function App() {
 
                   {/* 2. Completed Movies */}
                   {profileListTab === 'completed_movies' && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 animate-fade-in">
                       {state.completedMovies.length === 0 ? (
                         <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
                           No completed movies yet. Toggle the checkmark inside movie details to finish them!
                         </div>
+                      ) : filteredProfileItems.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20 space-y-3">
+                          <p>No completed movies match your filters.</p>
+                          <button
+                            onClick={() => {
+                              setProfileGenre('All');
+                              setProfileRating(0);
+                              setProfileYear('All');
+                              setProfileSort('date_added');
+                            }}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-450 rounded-xl text-xs font-bold text-black transition-all cursor-pointer"
+                          >
+                            Reset Filters
+                          </button>
+                        </div>
                       ) : (
                         <div className="space-y-4">
+                          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono px-1">
+                            <span>Showing {filteredProfileItems.length} of {state.completedMovies.length} movies</span>
+                            {(profileGenre !== 'All' || profileRating > 0 || profileYear !== 'All' || profileSort !== 'date_added') && (
+                              <button 
+                                onClick={() => {
+                                  setProfileGenre('All');
+                                  setProfileRating(0);
+                                  setProfileYear('All');
+                                  setProfileSort('date_added');
+                                }}
+                                className="text-amber-500 hover:underline cursor-pointer"
+                              >
+                                Clear filters
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                            {state.completedMovies.slice(0, visibleCompletedMovies).map(movie => (
+                            {filteredProfileItems.slice(0, visibleCompletedMovies).map(movie => (
                               <MediaCard
                                     key={movie.id}
                                     item={movie}
@@ -2570,7 +2796,7 @@ export default function App() {
                               />
                             ))}
                           </div>
-                          {state.completedMovies.length > visibleCompletedMovies && (
+                          {filteredProfileItems.length > visibleCompletedMovies && (
                             <div className="flex justify-center pt-2">
                               <button
                                 onClick={() => setVisibleCompletedMovies(prev => prev + 12)}
@@ -2587,15 +2813,46 @@ export default function App() {
 
                   {/* 3. Favorite TV Shows */}
                   {profileListTab === 'fav_tv' && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 animate-fade-in">
                       {state.favoriteTVShows.length === 0 ? (
                         <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
                           No favorite TV shows. Add some from their detailed overlay panel!
                         </div>
+                      ) : filteredProfileItems.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20 space-y-3">
+                          <p>No favorite TV shows match your filters.</p>
+                          <button
+                            onClick={() => {
+                              setProfileGenre('All');
+                              setProfileRating(0);
+                              setProfileYear('All');
+                              setProfileSort('date_added');
+                            }}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-450 rounded-xl text-xs font-bold text-black transition-all cursor-pointer"
+                          >
+                            Reset Filters
+                          </button>
+                        </div>
                       ) : (
                         <div className="space-y-4">
+                          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono px-1">
+                            <span>Showing {filteredProfileItems.length} of {state.favoriteTVShows.length} shows</span>
+                            {(profileGenre !== 'All' || profileRating > 0 || profileYear !== 'All' || profileSort !== 'date_added') && (
+                              <button 
+                                onClick={() => {
+                                  setProfileGenre('All');
+                                  setProfileRating(0);
+                                  setProfileYear('All');
+                                  setProfileSort('date_added');
+                                }}
+                                className="text-amber-500 hover:underline cursor-pointer"
+                              >
+                                Clear filters
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                            {state.favoriteTVShows.slice(0, visibleFavTV).map(show => {
+                            {filteredProfileItems.slice(0, visibleFavTV).map(show => {
                               const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
                               return (
                                 <MediaCard
@@ -2612,7 +2869,7 @@ export default function App() {
                               );
                             })}
                           </div>
-                          {state.favoriteTVShows.length > visibleFavTV && (
+                          {filteredProfileItems.length > visibleFavTV && (
                             <div className="flex justify-center pt-2">
                               <button
                                 onClick={() => setVisibleFavTV(prev => prev + 12)}
@@ -2629,15 +2886,46 @@ export default function App() {
 
                   {/* 4. Favorite Movies */}
                   {profileListTab === 'fav_movies' && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 animate-fade-in">
                       {state.favoriteMovies.length === 0 ? (
                         <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
                           No favorite movies. Star them by hitting the Heart icon in movie details!
                         </div>
+                      ) : filteredProfileItems.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20 space-y-3">
+                          <p>No favorite movies match your filters.</p>
+                          <button
+                            onClick={() => {
+                              setProfileGenre('All');
+                              setProfileRating(0);
+                              setProfileYear('All');
+                              setProfileSort('date_added');
+                            }}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-450 rounded-xl text-xs font-bold text-black transition-all cursor-pointer"
+                          >
+                            Reset Filters
+                          </button>
+                        </div>
                       ) : (
                         <div className="space-y-4">
+                          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono px-1">
+                            <span>Showing {filteredProfileItems.length} of {state.favoriteMovies.length} movies</span>
+                            {(profileGenre !== 'All' || profileRating > 0 || profileYear !== 'All' || profileSort !== 'date_added') && (
+                              <button 
+                                onClick={() => {
+                                  setProfileGenre('All');
+                                  setProfileRating(0);
+                                  setProfileYear('All');
+                                  setProfileSort('date_added');
+                                }}
+                                className="text-amber-500 hover:underline cursor-pointer"
+                              >
+                                Clear filters
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                            {state.favoriteMovies.slice(0, visibleFavMovies).map(movie => (
+                            {filteredProfileItems.slice(0, visibleFavMovies).map(movie => (
                               <MediaCard
                                     key={movie.id}
                                     item={movie}
@@ -2649,7 +2937,7 @@ export default function App() {
                               />
                             ))}
                           </div>
-                          {state.favoriteMovies.length > visibleFavMovies && (
+                          {filteredProfileItems.length > visibleFavMovies && (
                             <div className="flex justify-center pt-2">
                               <button
                                 onClick={() => setVisibleFavMovies(prev => prev + 12)}
@@ -2666,15 +2954,46 @@ export default function App() {
 
                   {/* 5. Stopped Watching TV Shows */}
                   {profileListTab === 'stopped_watching' && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 animate-fade-in">
                       {state.stoppedWatchingTVShows.length === 0 ? (
                         <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20">
                           No stopped watching TV shows. Set a show's status to Stopped from details to list it here!
                         </div>
+                      ) : filteredProfileItems.length === 0 ? (
+                        <div className="py-12 border border-white/5 border-dashed rounded-xl text-center text-xs text-zinc-500 bg-[#0A0A0A]/20 space-y-3">
+                          <p>No stopped watching TV shows match your filters.</p>
+                          <button
+                            onClick={() => {
+                              setProfileGenre('All');
+                              setProfileRating(0);
+                              setProfileYear('All');
+                              setProfileSort('date_added');
+                            }}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-450 rounded-xl text-xs font-bold text-black transition-all cursor-pointer"
+                          >
+                            Reset Filters
+                          </button>
+                        </div>
                       ) : (
                         <div className="space-y-4">
+                          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono px-1">
+                            <span>Showing {filteredProfileItems.length} of {state.stoppedWatchingTVShows.length} shows</span>
+                            {(profileGenre !== 'All' || profileRating > 0 || profileYear !== 'All' || profileSort !== 'date_added') && (
+                              <button 
+                                onClick={() => {
+                                  setProfileGenre('All');
+                                  setProfileRating(0);
+                                  setProfileYear('All');
+                                  setProfileSort('date_added');
+                                }}
+                                className="text-amber-500 hover:underline cursor-pointer"
+                              >
+                                Clear filters
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                            {state.stoppedWatchingTVShows.slice(0, visibleStoppedWatching).map(show => {
+                            {filteredProfileItems.slice(0, visibleStoppedWatching).map(show => {
                               const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
                               return (
                                 <MediaCard
@@ -2691,7 +3010,7 @@ export default function App() {
                               );
                             })}
                           </div>
-                          {state.stoppedWatchingTVShows.length > visibleStoppedWatching && (
+                          {filteredProfileItems.length > visibleStoppedWatching && (
                             <div className="flex justify-center pt-2">
                               <button
                                 onClick={() => setVisibleStoppedWatching(prev => prev + 12)}

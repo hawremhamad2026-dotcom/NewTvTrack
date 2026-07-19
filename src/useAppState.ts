@@ -478,9 +478,20 @@ export function useAppState(isSiteLocked = false) {
         const exists = prev.movies.some(m => m.id === id);
         let updatedMovies;
         if (exists) {
-          updatedMovies = prev.movies.map(m => m.id === id ? { ...m, inWatchlist: !m.inWatchlist } : m);
+          updatedMovies = prev.movies.map(m => {
+            if (m.id === id) {
+              const nextInWatchlist = !m.inWatchlist;
+              return {
+                ...m,
+                inWatchlist: nextInWatchlist,
+                completed: nextInWatchlist ? false : m.completed,
+                completedAt: nextInWatchlist ? null : m.completedAt,
+              };
+            }
+            return m;
+          });
         } else if (fullItem) {
-          updatedMovies = [...prev.movies, { ...fullItem, inWatchlist: true }];
+          updatedMovies = [...prev.movies, { ...fullItem, inWatchlist: true, completed: false, completedAt: null }];
         } else {
           updatedMovies = prev.movies;
         }
@@ -500,20 +511,21 @@ export function useAppState(isSiteLocked = false) {
       let updatedMovies = prev.movies;
 
       const itemType = type || (prev.shows.some(s => s.id === id) ? 'show' : 'movie');
+      const nowStr = new Date().toISOString();
 
       if (itemType === 'show') {
         const exists = prev.shows.some(s => s.id === id);
         if (exists) {
-          updatedShows = prev.shows.map(s => s.id === id ? { ...s, isFavorite: !isFav } : s);
+          updatedShows = prev.shows.map(s => s.id === id ? { ...s, isFavorite: !isFav, favoritedAt: !isFav ? nowStr : null } : s);
         } else if (fullItem) {
-          updatedShows = [...prev.shows, { ...fullItem, isFavorite: !isFav }];
+          updatedShows = [...prev.shows, { ...fullItem, isFavorite: !isFav, favoritedAt: !isFav ? nowStr : null }];
         }
       } else {
         const exists = prev.movies.some(m => m.id === id);
         if (exists) {
-          updatedMovies = prev.movies.map(m => m.id === id ? { ...m, isFavorite: !isFav } : m);
+          updatedMovies = prev.movies.map(m => m.id === id ? { ...m, isFavorite: !isFav, favoritedAt: !isFav ? nowStr : null } : m);
         } else if (fullItem) {
-          updatedMovies = [...prev.movies, { ...fullItem, isFavorite: !isFav }];
+          updatedMovies = [...prev.movies, { ...fullItem, isFavorite: !isFav, favoritedAt: !isFav ? nowStr : null }];
         }
       }
 
@@ -565,9 +577,25 @@ export function useAppState(isSiteLocked = false) {
       const exists = prev.movies.some(m => m.id === movieId);
       let updatedMovies;
       if (exists) {
-        updatedMovies = prev.movies.map(m => m.id === movieId ? { ...m, completed: !m.completed } : m);
+        updatedMovies = prev.movies.map(m => {
+          if (m.id === movieId) {
+            const nextCompleted = !m.completed;
+            return {
+              ...m,
+              completed: nextCompleted,
+              inWatchlist: nextCompleted ? false : m.inWatchlist,
+              completedAt: nextCompleted ? new Date().toISOString() : null,
+            };
+          }
+          return m;
+        });
       } else if (fullItem) {
-        updatedMovies = [...prev.movies, { ...fullItem, completed: true }];
+        updatedMovies = [...prev.movies, {
+          ...fullItem,
+          completed: true,
+          inWatchlist: false,
+          completedAt: new Date().toISOString()
+        }];
       } else {
         updatedMovies = prev.movies;
       }
@@ -620,6 +648,7 @@ export function useAppState(isSiteLocked = false) {
               stoppedWatching: makeStopped,
               completed: isCompleted,
               lastWatchedAt: !wasWatched ? new Date().toISOString() : s.lastWatchedAt,
+              completedAt: isCompleted ? (s.completedAt || new Date().toISOString()) : null,
             };
           }
           return s;
@@ -632,6 +661,7 @@ export function useAppState(isSiteLocked = false) {
           stoppedWatching: false,
           completed: isCompleted,
           lastWatchedAt: new Date().toISOString(),
+          completedAt: isCompleted ? new Date().toISOString() : null,
         }];
       } else {
         updatedShows = prev.shows;
@@ -690,6 +720,7 @@ export function useAppState(isSiteLocked = false) {
               stoppedWatching: makeStopped,
               completed: shouldComplete,
               lastWatchedAt: shouldComplete ? new Date().toISOString() : null,
+              completedAt: shouldComplete ? new Date().toISOString() : null,
             };
           }
           return s;
@@ -701,6 +732,7 @@ export function useAppState(isSiteLocked = false) {
           stoppedWatching: false,
           completed: shouldComplete,
           lastWatchedAt: shouldComplete ? new Date().toISOString() : null,
+          completedAt: shouldComplete ? new Date().toISOString() : null,
         }];
       } else {
         updatedShows = prev.shows;
@@ -771,6 +803,7 @@ export function useAppState(isSiteLocked = false) {
               stoppedWatching: makeStopped,
               completed: isCompleted,
               lastWatchedAt: shouldComplete && !allSeasonEpsWatched ? new Date().toISOString() : s.lastWatchedAt,
+              completedAt: isCompleted ? (s.completedAt || new Date().toISOString()) : null,
             };
           }
           return s;
@@ -783,6 +816,7 @@ export function useAppState(isSiteLocked = false) {
           stoppedWatching: false,
           completed: isCompleted,
           lastWatchedAt: shouldComplete ? new Date().toISOString() : null,
+          completedAt: isCompleted ? new Date().toISOString() : null,
         }];
       } else {
         updatedShows = prev.shows;
@@ -808,6 +842,7 @@ export function useAppState(isSiteLocked = false) {
               ...s,
               stoppedWatching: newStopped,
               inWatchlist: !newStopped,
+              stoppedWatchingAt: newStopped ? new Date().toISOString() : null,
             };
           }
           return s;
@@ -817,6 +852,7 @@ export function useAppState(isSiteLocked = false) {
           ...fullItem,
           stoppedWatching: true,
           inWatchlist: false,
+          stoppedWatchingAt: new Date().toISOString(),
         }];
       } else {
         updatedShows = prev.shows;
@@ -920,6 +956,8 @@ export function useAppState(isSiteLocked = false) {
           inWatchlist: true,
           completed: completed,
           lastWatchedAt: completed ? new Date().toISOString() : null,
+          completedAt: completed ? new Date().toISOString() : null,
+          favoritedAt: makeFavorite ? new Date().toISOString() : null,
         };
 
         if (item.type === 'show') {
@@ -1115,7 +1153,13 @@ export function useAppState(isSiteLocked = false) {
       tvHours += (epsWatched * runtime) / 60;
     });
 
-    const completedMovies = enrichedMovies.filter(m => m.completed);
+    const completedMovies = enrichedMovies
+      .filter(m => m.completed)
+      .sort((a, b) => {
+        const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+        const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+        return timeB - timeA;
+      });
     const moviesWatchedCount = completedMovies.length;
     let movieHours = 0;
     completedMovies.forEach(m => {
@@ -1133,11 +1177,38 @@ export function useAppState(isSiteLocked = false) {
       moviesWatched: moviesWatchedCount,
     };
 
-    // PROFILE FOUR DISTINCT LISTS
-    const completedTVShows = enrichedShows.filter(s => s.completed);
-    const favoriteTVShows = enrichedShows.filter(s => s.isFavorite);
-    const favoriteMovies = enrichedMovies.filter(m => m.isFavorite);
-    const stoppedWatchingTVShows = enrichedShows.filter(s => s.stoppedWatching);
+    // PROFILE FOUR DISTINCT LISTS (default sort: most recent at top)
+    const completedTVShows = enrichedShows
+      .filter(s => s.completed)
+      .sort((a, b) => {
+        const timeA = a.completedAt ? new Date(a.completedAt).getTime() : (a.lastWatchedAt ? new Date(a.lastWatchedAt).getTime() : 0);
+        const timeB = b.completedAt ? new Date(b.completedAt).getTime() : (b.lastWatchedAt ? new Date(b.lastWatchedAt).getTime() : 0);
+        return timeB - timeA;
+      });
+
+    const favoriteTVShows = enrichedShows
+      .filter(s => s.isFavorite)
+      .sort((a, b) => {
+        const timeA = a.favoritedAt ? new Date(a.favoritedAt).getTime() : 0;
+        const timeB = b.favoritedAt ? new Date(b.favoritedAt).getTime() : 0;
+        return timeB - timeA;
+      });
+
+    const favoriteMovies = enrichedMovies
+      .filter(m => m.isFavorite)
+      .sort((a, b) => {
+        const timeA = a.favoritedAt ? new Date(a.favoritedAt).getTime() : 0;
+        const timeB = b.favoritedAt ? new Date(b.favoritedAt).getTime() : 0;
+        return timeB - timeA;
+      });
+
+    const stoppedWatchingTVShows = enrichedShows
+      .filter(s => s.stoppedWatching)
+      .sort((a, b) => {
+        const timeA = a.stoppedWatchingAt ? new Date(a.stoppedWatchingAt).getTime() : 0;
+        const timeB = b.stoppedWatchingAt ? new Date(b.stoppedWatchingAt).getTime() : 0;
+        return timeB - timeA;
+      });
 
     return {
       shows: enrichedShows,
