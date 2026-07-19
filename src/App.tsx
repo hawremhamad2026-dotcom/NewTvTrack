@@ -49,6 +49,7 @@ import {
   Key,
   Sun,
   Moon,
+  EyeOff,
 } from 'lucide-react';
 
 function formatHoursSpent(totalHours: number): string {
@@ -249,6 +250,22 @@ export default function App() {
   // Personalized Recommendations state
   const [recommendations, setRecommendations] = useState<MediaItem[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState<boolean>(false);
+  const [recommendationRefreshCounter, setRecommendationRefreshCounter] = useState<number>(0);
+  const [dismissedRecs, setDismissedRecs] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('dismissed_recommendations');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleDismissRecommendation = (type: MediaType, id: number) => {
+    const key = `${type}-${id}`;
+    const updated = [...dismissedRecs, key];
+    setDismissedRecs(updated);
+    localStorage.setItem('dismissed_recommendations', JSON.stringify(updated));
+  };
 
   // Trakt specific states
   const [traktMediaType, setTraktMediaType] = useState<MediaType>('movie');
@@ -595,7 +612,10 @@ export default function App() {
       
       let seedsToQuery = Array.from(uniqueSeedsMap.values());
       
-      // Sort/slice seeds: limit to top 4 recent/important seeds
+      // Shuffle/rotate query seeds if user has triggered a refresh, so they discover items from different seeds
+      if (seedsToQuery.length > 4) {
+        seedsToQuery = [...seedsToQuery].sort(() => Math.random() - 0.5);
+      }
       seedsToQuery = seedsToQuery.slice(0, 4);
       
       setLoadingRecommendations(true);
@@ -645,6 +665,9 @@ export default function App() {
         
         let finalRecs = Array.from(uniqueResultsMap.values());
         
+        // Filter out dismissed recommendations
+        finalRecs = finalRecs.filter(item => !dismissedRecs.includes(`${item.type}-${item.id}`));
+        
         // Filter out items that are already watched or in watchlist
         const watchedOrWatchlistIds = new Set<string>();
         state.shows.forEach(s => {
@@ -659,6 +682,9 @@ export default function App() {
         });
         
         finalRecs = finalRecs.filter(item => !watchedOrWatchlistIds.has(`${item.type}-${item.id}`));
+        
+        // Shuffle the results to keep recommendations dynamic and organic
+        finalRecs = [...finalRecs].sort(() => Math.random() - 0.5);
         
         setRecommendations(finalRecs.slice(0, 15));
       } catch (err) {
@@ -675,7 +701,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [state.shows, state.movies, state.favorites, watchHistory, trendingWeekly, popularItems]);
+  }, [state.shows, state.movies, state.favorites, watchHistory, trendingWeekly, popularItems, recommendationRefreshCounter, dismissedRecs]);
 
   // Handle Discover Type Selection (TV Series vs Movies)
   const handleDiscoverTypeSelect = async (type: MediaType) => {
@@ -1591,6 +1617,14 @@ export default function App() {
                         <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider flex items-center gap-2">
                           Recommended For You
                         </h3>
+                        <button
+                          onClick={() => setRecommendationRefreshCounter(prev => prev + 1)}
+                          disabled={loadingRecommendations}
+                          className="p-1 text-zinc-400 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                          title="Refresh / Update recommendations list"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${loadingRecommendations ? 'animate-spin' : ''}`} />
+                        </button>
                       </div>
                       
                       <div className="text-[10px] text-zinc-400 font-medium">
@@ -1619,7 +1653,7 @@ export default function App() {
                             : state.movies.find(m => m.id === item.id);
 
                           return (
-                            <div className="w-36 md:w-44 lg:w-52 shrink-0 snap-start" key={`recommendation-${item.id}`}>
+                            <div className="w-36 md:w-44 lg:w-52 shrink-0 snap-start relative group" key={`recommendation-${item.id}`}>
                               <MediaCard
                                 item={localItem || item}
                                 onClick={() => {
@@ -1631,6 +1665,16 @@ export default function App() {
                                   state.toggleWatchlist(item.id, item.type, localItem || item);
                                 }}
                               />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDismissRecommendation(item.type, item.id);
+                                }}
+                                className="absolute top-2 right-2 p-1.5 bg-black/85 hover:bg-red-500 hover:text-white border border-white/10 rounded-lg text-zinc-400 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all cursor-pointer z-10"
+                                title="Not interested / Hide this recommendation"
+                              >
+                                <EyeOff className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           );
                         })}
