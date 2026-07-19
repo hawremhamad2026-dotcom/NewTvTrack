@@ -691,5 +691,26 @@ export async function findOrSearchMediaItem(
   return null;
 }
 
+/**
+ * Fetch recommendations for a specific movie or TV show from TMDB.
+ */
+export async function fetchMediaRecommendations(
+  id: number,
+  type: MediaType
+): Promise<MediaItem[]> {
+  try {
+    const tmdbType = type === 'show' ? 'tv' : 'movie';
+    const data = await tmdbFetch(`/${tmdbType}/${id}/recommendations`);
+    if (data && data.results && data.results.length > 0) {
+      return data.results
+        .slice(0, 10)
+        .map((item: any) => transformMedia(item, type));
+    }
+  } catch (err) {
+    console.warn(`Failed to fetch recommendations for TMDB ID ${id} (${type})`, err);
+  }
+  return [];
+}
+
 
 

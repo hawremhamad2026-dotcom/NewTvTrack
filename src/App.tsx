@@ -14,7 +14,7 @@ import { SitePasswordGate } from './components/SitePasswordGate';
 import HlsVideoPlayer from './components/HlsVideoPlayer';
 import { ImdbImportWizard } from './components/ImdbImportWizard';
 import { MediaItem, MediaType } from './types';
-import { fetchTrending, fetchDiscover, fetchPopular, searchMedia, GENRE_MAP, fetchTraktList } from './tmdb';
+import { fetchTrending, fetchDiscover, fetchPopular, searchMedia, GENRE_MAP, fetchTraktList, fetchMediaRecommendations } from './tmdb';
 import { AnimatePresence } from 'motion/react';
 import {
   Search,
@@ -246,6 +246,10 @@ export default function App() {
   // Explore sub-tab
   const [exploreSubTab, setExploreSubTab] = useState<'discover' | 'trakt'>('discover');
 
+  // Personalized Recommendations state
+  const [recommendations, setRecommendations] = useState<MediaItem[]>([]);
+  const [loadingRecommendations, setLoadingRecommendations] = useState<boolean>(false);
+
   // Trakt specific states
   const [traktMediaType, setTraktMediaType] = useState<MediaType>('movie');
   const [traktListType, setTraktListType] = useState<'trending' | 'boxoffice' | 'popular' | 'favorited' | 'played' | 'watched' | 'anticipated'>('trending');
@@ -262,6 +266,26 @@ export default function App() {
   const [statsRoleType, setStatsRoleType] = useState<'actor' | 'director'>('actor');
   const [showAllActors, setShowAllActors] = useState(false);
   const [showAllDirectors, setShowAllDirectors] = useState(false);
+  
+  // Progressive display limits to prevent slow render times with large datasets
+  const [visibleCompletedTV, setVisibleCompletedTV] = useState(12);
+  const [visibleCompletedMovies, setVisibleCompletedMovies] = useState(12);
+  const [visibleFavTV, setVisibleFavTV] = useState(12);
+  const [visibleFavMovies, setVisibleFavMovies] = useState(12);
+  const [visibleStoppedWatching, setVisibleStoppedWatching] = useState(12);
+  const [visibleActors, setVisibleActors] = useState(5);
+  const [visibleDirectors, setVisibleDirectors] = useState(5);
+
+  // Reset limits when tabs are changed for fresh/fast page rendering
+  useEffect(() => {
+    setVisibleCompletedTV(12);
+    setVisibleCompletedMovies(12);
+    setVisibleFavTV(12);
+    setVisibleFavMovies(12);
+    setVisibleStoppedWatching(12);
+    setVisibleActors(5);
+    setVisibleDirectors(5);
+  }, [profileListTab]);
   const [syncIdInput, setSyncIdInput] = useState('');
   const [isEditingSyncId, setIsEditingSyncId] = useState(false);
   const [revealHoursSpent, setRevealHoursSpent] = useState(false);
@@ -445,6 +469,118 @@ export default function App() {
     };
     loadExploreData();
   }, []);
+
+  // Fetch Personalized Recommendations based on user history, ratings, and favorites
+  useEffect(() => {
+    let isMounted = true;
+    
+    const fetchAllRecommendations = async () => {
+      // Find local seeds
+      const highRatedShows = state.shows.filter(s => s.userRating !== null && s.userRating >= 7);
+      const highRatedMovies = state.movies.filter(m => m.userRating !== null && m.userRating >= 7);
+      const favShows = state.shows.filter(s => state.favorites.includes(s.id));
+      const favMovies = state.movies.filter(m => state.favorites.includes(m.id));
+      
+      const historySeeds = watchHistory.map(h => h.mediaItem).filter(Boolean);
+      
+      // Combine seeds
+      const allLocalSeeds: MediaItem[] = [
+        ...favShows,
+        ...favMovies,
+        ...highRatedShows,
+        ...highRatedMovies,
+        ...historySeeds
+      ];
+      
+      // De-duplicate seeds by type and ID
+      const uniqueSeedsMap = new Map<string, MediaItem>();
+      allLocalSeeds.forEach(item => {
+        uniqueSeedsMap.set(`${item.type}-${item.id}`, item);
+      });
+      
+      let seedsToQuery = Array.from(uniqueSeedsMap.values());
+      
+      // Sort/slice seeds: limit to top 4 recent/important seeds
+      seedsToQuery = seedsToQuery.slice(0, 4);
+      
+      setLoadingRecommendations(true);
+      try {
+        let results: MediaItem[] = [];
+        
+        if (seedsToQuery.length > 0) {
+          // Fetch real recommendations for each seed
+          const promises = seedsToQuery.map(seed => 
+            fetchMediaRecommendations(seed.id, seed.type)
+          );
+          const responses = await Promise.all(promises);
+          responses.forEach(resList => {
+            if (Array.isArray(resList)) {
+              results.push(...resList);
+            }
+          });
+        }
+        
+        // If we don't have enough results or no seeds at all, fetch popular/trending fallbacks
+        if (results.length < 5) {
+          const fallbacks = trendingWeekly.length > 0 ? trendingWeekly : popularItems;
+          if (fallbacks.length > 0) {
+            const fallbackSeeds = fallbacks.slice(0, 2);
+            const fallbackPromises = fallbackSeeds.map(seed => 
+              fetchMediaRecommendations(seed.id, seed.type)
+            );
+            const fallbackResponses = await Promise.all(fallbackPromises);
+            fallbackResponses.forEach(resList => {
+              if (Array.isArray(resList)) {
+                results.push(...resList);
+              }
+            });
+            results.push(...fallbacks);
+          }
+        }
+        
+        if (!isMounted) return;
+        
+        // De-duplicate results
+        const uniqueResultsMap = new Map<string, MediaItem>();
+        results.forEach(item => {
+          if (item && item.id) {
+            uniqueResultsMap.set(`${item.type}-${item.id}`, item);
+          }
+        });
+        
+        let finalRecs = Array.from(uniqueResultsMap.values());
+        
+        // Filter out items that are already watched or in watchlist
+        const watchedOrWatchlistIds = new Set<string>();
+        state.shows.forEach(s => {
+          if (s.completed || s.inWatchlist) {
+            watchedOrWatchlistIds.add(`show-${s.id}`);
+          }
+        });
+        state.movies.forEach(m => {
+          if (m.completed || m.inWatchlist) {
+            watchedOrWatchlistIds.add(`movie-${m.id}`);
+          }
+        });
+        
+        finalRecs = finalRecs.filter(item => !watchedOrWatchlistIds.has(`${item.type}-${item.id}`));
+        
+        setRecommendations(finalRecs.slice(0, 15));
+      } catch (err) {
+        console.warn('Failed to generate personalized recommendations:', err);
+      } finally {
+        if (isMounted) setLoadingRecommendations(false);
+      }
+    };
+    
+    if (trendingWeekly.length > 0 || popularItems.length > 0) {
+      fetchAllRecommendations();
+    }
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [state.shows, state.movies, state.favorites, watchHistory, trendingWeekly, popularItems]);
 
   // Handle Discover Type Selection (TV Series vs Movies)
   const handleDiscoverTypeSelect = async (type: MediaType) => {
@@ -1352,6 +1488,65 @@ export default function App() {
                 /* EXPLORE HOME VIEW */
                 <div className="space-y-5">
 
+                  {/* PERSONALIZED RECOMMENDATIONS SECTION */}
+                  <div className="space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pl-1 pr-1 gap-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4.5 h-4.5 text-amber-500 fill-amber-500/25 animate-pulse" />
+                        <h3 className="font-display font-bold text-sm text-[#F5F5F5] uppercase tracking-wider flex items-center gap-2">
+                          Recommended For You
+                        </h3>
+                      </div>
+                      
+                      <div className="text-[10px] text-zinc-400 font-medium">
+                        {state.favorites.length > 0 || state.shows.some(s => s.userRating !== null) || state.movies.some(m => m.userRating !== null) || watchHistory.length > 0 ? (
+                          <span className="bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full border border-amber-500/20 font-semibold">
+                            ✨ Tailored to Your Taste
+                          </span>
+                        ) : (
+                          <span className="text-zinc-500 italic bg-zinc-900/40 px-2 py-0.5 rounded-full border border-white/5">
+                            Rate & favorite titles for custom picks
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {loadingRecommendations ? (
+                      <div className="py-12 bg-zinc-900/20 border border-white/5 rounded-2xl flex flex-col items-center justify-center gap-2">
+                        <div className="w-6 h-6 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+                        <span className="text-[10px] text-zinc-500 font-mono">Generating recommendations...</span>
+                      </div>
+                    ) : recommendations.length > 0 ? (
+                      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 snap-x">
+                        {recommendations.map(item => {
+                          const localItem = item.type === 'show'
+                            ? state.shows.find(s => s.id === item.id)
+                            : state.movies.find(m => m.id === item.id);
+
+                          return (
+                            <div className="w-36 md:w-44 lg:w-52 shrink-0 snap-start" key={`recommendation-${item.id}`}>
+                              <MediaCard
+                                item={localItem || item}
+                                onClick={() => {
+                                  if (!localItem) state.importMediaItem(item);
+                                  setSelectedMediaItem(localItem || item);
+                                }}
+                                onToggleWatchlist={(e) => {
+                                  e.stopPropagation();
+                                  state.toggleWatchlist(item.id, item.type, localItem || item);
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center text-xs text-zinc-500 bg-zinc-900/10 border border-white/5 rounded-2xl">
+                        No custom recommendations found.
+                      </div>
+                    )}
+                  </div>
+
                   {/* WATCH HISTORY SECTION */}
                   {watchHistory && watchHistory.length > 0 && (
                     <div className="space-y-2.5">
@@ -2141,7 +2336,7 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-4">
-                              {(showAllActors ? castAndCrewStats.actors : castAndCrewStats.actors.slice(0, 5)).map((person, idx) => (
+                              {(castAndCrewStats.actors.slice(0, visibleActors)).map((person, idx) => (
                                 <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
                                   {/* Person Header */}
                                   <div className="flex items-center justify-between gap-3">
@@ -2199,13 +2394,23 @@ export default function App() {
                               ))}
 
                               {castAndCrewStats.actors.length > 5 && (
-                                <div className="flex justify-center pt-2">
-                                  <button
-                                    onClick={() => setShowAllActors(!showAllActors)}
-                                    className="px-5 py-2.5 bg-[#050505]/60 hover:bg-[#050505] border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
-                                  >
-                                    {showAllActors ? 'Show Less' : `Show All (${castAndCrewStats.actors.length})`}
-                                  </button>
+                                <div className="flex justify-center gap-3 pt-2">
+                                  {visibleActors < castAndCrewStats.actors.length && (
+                                    <button
+                                      onClick={() => setVisibleActors(prev => prev + 5)}
+                                      className="px-5 py-2.5 bg-[#050505]/60 hover:bg-[#050505] border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                                    >
+                                      Show More (+5)
+                                    </button>
+                                  )}
+                                  {visibleActors > 5 && (
+                                    <button
+                                      onClick={() => setVisibleActors(5)}
+                                      className="px-5 py-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-zinc-400 hover:text-zinc-300 transition-all cursor-pointer flex items-center gap-1.5"
+                                    >
+                                      Show Less
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -2217,7 +2422,7 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-4">
-                              {(showAllDirectors ? castAndCrewStats.directors : castAndCrewStats.directors.slice(0, 5)).map((person, idx) => (
+                              {(castAndCrewStats.directors.slice(0, visibleDirectors)).map((person, idx) => (
                                 <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
                                   {/* Person Header */}
                                   <div className="flex items-center justify-between gap-3">
@@ -2275,13 +2480,23 @@ export default function App() {
                               ))}
 
                               {castAndCrewStats.directors.length > 5 && (
-                                <div className="flex justify-center pt-2">
-                                  <button
-                                    onClick={() => setShowAllDirectors(!showAllDirectors)}
-                                    className="px-5 py-2.5 bg-[#050505]/60 hover:bg-[#050505] border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
-                                  >
-                                    {showAllDirectors ? 'Show Less' : `Show All (${castAndCrewStats.directors.length})`}
-                                  </button>
+                                <div className="flex justify-center gap-3 pt-2">
+                                  {visibleDirectors < castAndCrewStats.directors.length && (
+                                    <button
+                                      onClick={() => setVisibleDirectors(prev => prev + 5)}
+                                      className="px-5 py-2.5 bg-[#050505]/60 hover:bg-[#050505] border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                                    >
+                                      Show More (+5)
+                                    </button>
+                                  )}
+                                  {visibleDirectors > 5 && (
+                                    <button
+                                      onClick={() => setVisibleDirectors(5)}
+                                      className="px-5 py-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-white/5 hover:border-white/10 rounded-xl text-xs font-bold text-zinc-400 hover:text-zinc-300 transition-all cursor-pointer flex items-center gap-1.5"
+                                    >
+                                      Show Less
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -2299,23 +2514,35 @@ export default function App() {
                           No completed TV shows yet. Mark all episodes of a series as watched!
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                          {state.completedTVShows.map(show => {
-                            const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
-                            return (
-                              <MediaCard
-                                  key={show.id}
-                                  item={show}
-                                  onToggleWatchlist={(e) => {
-                                    e.stopPropagation();
-                                    state.toggleWatchlist(show.id, show.type, show);
-                                  }}
-                                onClick={() => setSelectedMediaItem(show)}
-                                watchedEpisodesCount={watched}
-                                totalEpisodesCount={show.episodesCount || 8}
-                              />
-                            );
-                          })}
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.completedTVShows.slice(0, visibleCompletedTV).map(show => {
+                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              return (
+                                <MediaCard
+                                    key={show.id}
+                                    item={show}
+                                    onToggleWatchlist={(e) => {
+                                      e.stopPropagation();
+                                      state.toggleWatchlist(show.id, show.type, show);
+                                    }}
+                                  onClick={() => setSelectedMediaItem(show)}
+                                  watchedEpisodesCount={watched}
+                                  totalEpisodesCount={show.episodesCount || 8}
+                                />
+                              );
+                            })}
+                          </div>
+                          {state.completedTVShows.length > visibleCompletedTV && (
+                            <div className="flex justify-center pt-2">
+                              <button
+                                onClick={() => setVisibleCompletedTV(prev => prev + 12)}
+                                className="px-5 py-2.5 bg-zinc-900/60 hover:bg-zinc-800 border border-white/5 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                              >
+                                Show More (+12)
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2329,18 +2556,30 @@ export default function App() {
                           No completed movies yet. Toggle the checkmark inside movie details to finish them!
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                          {state.completedMovies.map(movie => (
-                            <MediaCard
-                                  key={movie.id}
-                                  item={movie}
-                                  onToggleWatchlist={(e) => {
-                                    e.stopPropagation();
-                                    state.toggleWatchlist(movie.id, movie.type, movie);
-                                  }}
-                              onClick={() => setSelectedMediaItem(movie)}
-                            />
-                          ))}
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.completedMovies.slice(0, visibleCompletedMovies).map(movie => (
+                              <MediaCard
+                                    key={movie.id}
+                                    item={movie}
+                                    onToggleWatchlist={(e) => {
+                                      e.stopPropagation();
+                                      state.toggleWatchlist(movie.id, movie.type, movie);
+                                    }}
+                                onClick={() => setSelectedMediaItem(movie)}
+                              />
+                            ))}
+                          </div>
+                          {state.completedMovies.length > visibleCompletedMovies && (
+                            <div className="flex justify-center pt-2">
+                              <button
+                                onClick={() => setVisibleCompletedMovies(prev => prev + 12)}
+                                className="px-5 py-2.5 bg-zinc-900/60 hover:bg-zinc-800 border border-white/5 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                              >
+                                Show More (+12)
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2354,23 +2593,35 @@ export default function App() {
                           No favorite TV shows. Add some from their detailed overlay panel!
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                          {state.favoriteTVShows.map(show => {
-                            const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
-                            return (
-                              <MediaCard
-                                  key={show.id}
-                                  item={show}
-                                  onToggleWatchlist={(e) => {
-                                    e.stopPropagation();
-                                    state.toggleWatchlist(show.id, show.type, show);
-                                  }}
-                                onClick={() => setSelectedMediaItem(show)}
-                                watchedEpisodesCount={watched}
-                                totalEpisodesCount={show.episodesCount || 8}
-                              />
-                            );
-                          })}
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.favoriteTVShows.slice(0, visibleFavTV).map(show => {
+                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              return (
+                                <MediaCard
+                                    key={show.id}
+                                    item={show}
+                                    onToggleWatchlist={(e) => {
+                                      e.stopPropagation();
+                                      state.toggleWatchlist(show.id, show.type, show);
+                                    }}
+                                  onClick={() => setSelectedMediaItem(show)}
+                                  watchedEpisodesCount={watched}
+                                  totalEpisodesCount={show.episodesCount || 8}
+                                />
+                              );
+                            })}
+                          </div>
+                          {state.favoriteTVShows.length > visibleFavTV && (
+                            <div className="flex justify-center pt-2">
+                              <button
+                                onClick={() => setVisibleFavTV(prev => prev + 12)}
+                                className="px-5 py-2.5 bg-zinc-900/60 hover:bg-zinc-800 border border-white/5 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                              >
+                                Show More (+12)
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2384,18 +2635,30 @@ export default function App() {
                           No favorite movies. Star them by hitting the Heart icon in movie details!
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                          {state.favoriteMovies.map(movie => (
-                            <MediaCard
-                                  key={movie.id}
-                                  item={movie}
-                                  onToggleWatchlist={(e) => {
-                                    e.stopPropagation();
-                                    state.toggleWatchlist(movie.id, movie.type, movie);
-                                  }}
-                              onClick={() => setSelectedMediaItem(movie)}
-                            />
-                          ))}
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.favoriteMovies.slice(0, visibleFavMovies).map(movie => (
+                              <MediaCard
+                                    key={movie.id}
+                                    item={movie}
+                                    onToggleWatchlist={(e) => {
+                                      e.stopPropagation();
+                                      state.toggleWatchlist(movie.id, movie.type, movie);
+                                    }}
+                                onClick={() => setSelectedMediaItem(movie)}
+                              />
+                            ))}
+                          </div>
+                          {state.favoriteMovies.length > visibleFavMovies && (
+                            <div className="flex justify-center pt-2">
+                              <button
+                                onClick={() => setVisibleFavMovies(prev => prev + 12)}
+                                className="px-5 py-2.5 bg-zinc-900/60 hover:bg-zinc-800 border border-white/5 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                              >
+                                Show More (+12)
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2409,23 +2672,35 @@ export default function App() {
                           No stopped watching TV shows. Set a show's status to Stopped from details to list it here!
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
-                          {state.stoppedWatchingTVShows.map(show => {
-                            const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
-                            return (
-                              <MediaCard
-                                  key={show.id}
-                                  item={show}
-                                  onToggleWatchlist={(e) => {
-                                    e.stopPropagation();
-                                    state.toggleWatchlist(show.id, show.type, show);
-                                  }}
-                                onClick={() => setSelectedMediaItem(show)}
-                                watchedEpisodesCount={watched}
-                                totalEpisodesCount={show.episodesCount || 8}
-                              />
-                            );
-                          })}
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
+                            {state.stoppedWatchingTVShows.slice(0, visibleStoppedWatching).map(show => {
+                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              return (
+                                <MediaCard
+                                    key={show.id}
+                                    item={show}
+                                    onToggleWatchlist={(e) => {
+                                      e.stopPropagation();
+                                      state.toggleWatchlist(show.id, show.type, show);
+                                    }}
+                                  onClick={() => setSelectedMediaItem(show)}
+                                  watchedEpisodesCount={watched}
+                                  totalEpisodesCount={show.episodesCount || 8}
+                                />
+                              );
+                            })}
+                          </div>
+                          {state.stoppedWatchingTVShows.length > visibleStoppedWatching && (
+                            <div className="flex justify-center pt-2">
+                              <button
+                                onClick={() => setVisibleStoppedWatching(prev => prev + 12)}
+                                className="px-5 py-2.5 bg-zinc-900/60 hover:bg-zinc-800 border border-white/5 rounded-xl text-xs font-bold text-amber-500 hover:text-amber-400 transition-all cursor-pointer flex items-center gap-1.5"
+                              >
+                                Show More (+12)
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
