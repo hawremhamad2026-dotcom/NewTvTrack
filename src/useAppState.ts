@@ -99,6 +99,7 @@ export function useAppState(isSiteLocked = false) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [refetchTrigger, setRefetchTrigger] = useState(0);
+  const [dbStatus, setDbStatus] = useState<{ usePostgres: boolean; hasDbUrl: boolean; dbError?: string | null } | null>(null);
   const isLoadedRef = useRef(false);
   const loadFailedRef = useRef(false);
   const hasChangesRef = useRef(false);
@@ -139,6 +140,9 @@ export function useAppState(isSiteLocked = false) {
             favorites: data.favorites || [],
             updatedAt: Date.now()
           });
+          if (data.dbStatus) {
+            setDbStatus(data.dbStatus);
+          }
           loadFailedRef.current = false;
           isLoadedRef.current = true;
           hasChangesRef.current = false;
@@ -1232,6 +1236,7 @@ export function useAppState(isSiteLocked = false) {
     isLoaded,
     loadFailed,
     retryLoad,
+    dbStatus,
     shows: computedData.shows,
     movies: computedData.movies,
     watchedEpisodes: state.watchedEpisodes,

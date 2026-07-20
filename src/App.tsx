@@ -52,6 +52,7 @@ import {
   Moon,
   EyeOff,
   ArrowUpRight,
+  Database,
 } from 'lucide-react';
 
 function formatHoursSpent(totalHours: number): string {
@@ -2400,6 +2401,50 @@ export default function App() {
                 <p className="text-[10px] font-medium text-zinc-500 font-mono z-10">
                   ESTABLISHED JULY 2026
                 </p>
+
+                {state.dbStatus && (
+                  <div className="mt-3.5 px-3 py-2.5 rounded-xl border w-full max-w-sm z-10 text-left space-y-1.5 bg-zinc-950/80 border-white/5">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${
+                        state.dbStatus.usePostgres ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'
+                      }`} />
+                      <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Database className="w-3.5 h-3.5 text-zinc-400" />
+                        Storage: {state.dbStatus.usePostgres ? 'Durable Postgres Cloud' : 'Ephemeral Local JSON'}
+                      </span>
+                    </div>
+
+                    {!state.dbStatus.usePostgres && (
+                      <div className="space-y-1 text-zinc-400 text-[10px] leading-relaxed">
+                        {!state.dbStatus.hasDbUrl ? (
+                          <p className="text-amber-400 font-semibold">
+                            ⚠️ Warning: <code>DATABASE_URL</code> is not configured. Cloud Run container disks are stateless and clear automatically. Any tracked shows/movies will be lost on container restart.
+                          </p>
+                        ) : (
+                          <div className="space-y-1">
+                            <p className="text-red-400 font-semibold">
+                              ❌ Error: <code>DATABASE_URL</code> was found but failed to connect!
+                            </p>
+                            {state.dbStatus.dbError && (
+                              <div className="bg-red-950/40 border border-red-900/30 p-1.5 rounded text-red-300 font-mono text-[9px] whitespace-pre-wrap select-text leading-tight max-h-[100px] overflow-y-auto">
+                                {state.dbStatus.dbError}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-zinc-500">
+                          To save your data permanently, set the <code className="text-zinc-300 font-mono">DATABASE_URL</code> environment variable in your Google Cloud Run service variables (pointing to your Supabase, Neon, or Cloud SQL instance).
+                        </p>
+                      </div>
+                    )}
+                    
+                    {state.dbStatus.usePostgres && (
+                      <p className="text-[9px] text-emerald-400 font-medium leading-relaxed">
+                        ✓ Connected to PostgreSQL. Your watchlist and history are securely saved in the cloud.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Dynamic Counter panels */}
                 <div className="grid grid-cols-3 gap-2.5 w-full mt-4.5 z-10">

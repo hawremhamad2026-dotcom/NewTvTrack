@@ -10,7 +10,7 @@ import tls from "tls";
 import { GoogleGenAI, Type } from "@google/genai";
 import { SeedrClient } from "./src/lib/seedrService.js";
 import { loadDb, saveDb } from "./src/db/jsonDb.js";
-import { getDb, initDb, getUsePostgres } from "./src/db/index.js";
+import { getDb, initDb, getUsePostgres, getDbError } from "./src/db/index.js";
 import { userProfiles, mediaItems, watchedEpisodes } from "./src/db/schema.js";
 import { eq, and } from "drizzle-orm";
 import compression from "compression";
@@ -86,7 +86,14 @@ async function startServer() {
   });
 
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+    res.json({
+      status: "ok",
+      database: {
+        usePostgres: getUsePostgres(),
+        hasDbUrl: !!process.env.DATABASE_URL,
+        dbError: getDbError()
+      }
+    });
   });
 
   // API: Get Seedr stream status (ready, downloading, not_added)
@@ -839,7 +846,12 @@ async function startServer() {
         shows,
         movies,
         watchedEpisodes: watchedEpsDict,
-        favorites
+        favorites,
+        dbStatus: {
+          usePostgres: getUsePostgres(),
+          hasDbUrl: !!process.env.DATABASE_URL,
+          dbError: getDbError()
+        }
       });
     } catch (error) {
       console.error('Error fetching state:', error);

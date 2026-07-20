@@ -8,36 +8,50 @@ const connectionString = process.env.DATABASE_URL;
 let pool: any = null;
 let db: any = null;
 let usePostgres = false;
+let lastDbError: string | null = null;
 
 export function getUsePostgres() {
   return usePostgres;
 }
 
+export function getDbError() {
+  return lastDbError;
+}
+
 export async function initDb() {
+  lastDbError = null;
   if (!connectionString) {
     console.warn('[Database] DATABASE_URL is not set. Falling back to local JSON database.');
+    lastDbError = 'DATABASE_URL is not defined in environment variables.';
     usePostgres = false;
     return false;
   }
 
-  const isUrlFormat = connectionString.startsWith('postgres://') || connectionString.startsWith('postgresql://');
+  let cleanedConnectionString = connectionString.trim();
+  // Strip any wrapping single or double quotes
+  if (cleanedConnectionString.startsWith('"') && cleanedConnectionString.endsWith('"')) {
+    cleanedConnectionString = cleanedConnectionString.slice(1, -1);
+  } else if (cleanedConnectionString.startsWith("'") && cleanedConnectionString.endsWith("'")) {
+    cleanedConnectionString = cleanedConnectionString.slice(1, -1);
+  }
+
+  const isUrlFormat = cleanedConnectionString.startsWith('postgres://') || cleanedConnectionString.startsWith('postgresql://');
   if (!isUrlFormat) {
-    console.warn(
-      `[Database] Warning: DATABASE_URL "${connectionString.substring(0, 40)}..." is missing the "postgresql://" protocol and credentials. ` +
-      `Please provide the full connection string (e.g. postgresql://user:pass@host:port/db) in your environment variables. ` +
-      `Falling back to local JSON database.`
-    );
+    const errorMsg = `DATABASE_URL is missing the "postgresql://" or "postgres://" prefix. Current value starts with: "${cleanedConnectionString.substring(0, 15)}..."`;
+    console.warn(`[Database] Warning: ${errorMsg}`);
+    lastDbError = errorMsg;
     usePostgres = false;
     return false;
   }
 
   try {
+    const isLocalhost = cleanedConnectionString.includes('localhost') || cleanedConnectionString.includes('127.0.0.1') || cleanedConnectionString.includes('::1');
+    const needsSsl = !isLocalhost || cleanedConnectionString.includes('sslmode=') || cleanedConnectionString.includes('ssl=');
+
     pool = new Pool({
-      connectionString,
-      ssl: connectionString.includes('supabase.co') || connectionString.includes('supabase.com') || connectionString.includes('pooler') 
-        ? { rejectUnauthorized: false } 
-        : undefined,
-      connectionTimeoutMillis: 8000, // 8s timeout
+      connectionString: cleanedConnectionString,
+      ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+      connectionTimeoutMillis: 10000, // 10s timeout
     });
 
     // Test the connection
@@ -111,7 +125,8 @@ export async function initDb() {
     console.log('[Database] PostgreSQL / Supabase initialized successfully and schemas are ready.');
     return true;
   } catch (error: any) {
-    console.warn('[Database] Failed to connect to PostgreSQL/Supabase database. Error:', error?.message || error);
+    lastDbError = error?.message || String(error);
+    console.warn('[Database] Failed to connect to PostgreSQL/Supabase database. Error:', lastDbError);
     console.warn('[Database] Falling back to local JSON database.');
     usePostgres = false;
     if (pool) {
