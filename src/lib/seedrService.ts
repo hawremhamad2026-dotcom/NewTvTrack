@@ -124,6 +124,9 @@ export class SeedrClient {
     });
 
     if (!response.ok) {
+      if (response.status === 413) {
+        throw new Error("Torrent is too large for your Seedr account limit (free accounts are limited to 2GB). Try choosing a smaller single-episode stream or a lower resolution (720p/480p).");
+      }
       throw new Error(`Failed to add magnet, status: ${response.status}`);
     }
 
@@ -224,9 +227,12 @@ export class SeedrClient {
    * Normalizes a filename/title for reliable comparison
    */
   private normalizeString(str: string): string {
+    if (!str) return '';
     return str
       .toLowerCase()
-      .replace(/[^a-z0-9]/g, '') // remove all non-alphanumeric chars
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // remove accents/diacritics
+      .replace(/[^a-z0-9]/g, '')       // remove other non-alphanumeric chars
       .trim();
   }
 
@@ -302,6 +308,39 @@ export class SeedrClient {
   }
 
   /**
+   * Recursively fetches all video files inside a folder
+   */
+  private async getAllVideoFilesRecursively(folderId: number): Promise<any[]> {
+    let allVideoFiles: any[] = [];
+    try {
+      const folderDetails = await this.getFolderContents(folderId);
+      
+      // Add video files from current folder
+      if (folderDetails.files && Array.isArray(folderDetails.files)) {
+        const videoFiles = folderDetails.files.filter(file => {
+          const extension = (file.name || '').split('.').pop()?.toLowerCase() || '';
+          const isVideoExt = ['mkv', 'mp4', 'avi', 'mov', 'webm', 'ts', 'm4v', 'flv', 'wmv'].includes(extension);
+          // Include if Seedr says play_video is true, OR if it has a known video extension, OR if it's larger than 50MB (likely a video file inside an archive or missing extension)
+          const isLargeFile = (file.size || 0) > 50 * 1024 * 1024;
+          return file.play_video || isVideoExt || isLargeFile;
+        });
+        allVideoFiles = allVideoFiles.concat(videoFiles);
+      }
+      
+      // Recursively check subfolders
+      if (folderDetails.folders && Array.isArray(folderDetails.folders)) {
+        for (const subFolder of folderDetails.folders) {
+          const subFiles = await this.getAllVideoFilesRecursively(subFolder.id);
+          allVideoFiles = allVideoFiles.concat(subFiles);
+        }
+      }
+    } catch (err) {
+      console.error(`Error in getAllVideoFilesRecursively for folder ${folderId}:`, err);
+    }
+    return allVideoFiles;
+  }
+
+  /**
    * Checks if a stream exists in Seedr account and gets its status/URLs
    */
   async checkStreamStatus(infoHash: string, title: string): Promise<SeedrStatusResponse> {
@@ -311,12 +350,24 @@ export class SeedrClient {
 
       // 1. Check if it's currently downloading/queued in torrents
       if (root.torrents && Array.isArray(root.torrents)) {
-        const matchingTorrent = root.torrents.find(t => {
+        let matchingTorrent = root.torrents.find(t => {
           const tHash = (t.hash || t.info_hash || '').toLowerCase().trim();
           if (tHash && tHash === cleanInfoHash) return true;
           
           return this.strictTitlesMatch(t.name || '', title);
         });
+
+        // Try looser match
+        if (!matchingTorrent) {
+          matchingTorrent = root.torrents.find(t => {
+            return this.titlesMatch(t.name || '', title);
+          });
+        }
+
+        // Fallback: If no torrent matched, but there is exactly ONE torrent in the entire account and nothing else
+        if (!matchingTorrent && root.torrents.length === 1 && (!root.folders || root.folders.length === 0) && (!root.files || root.files.length === 0)) {
+          matchingTorrent = root.torrents[0];
+        }
 
         if (matchingTorrent) {
           // Calculate progress percentage
@@ -336,9 +387,21 @@ export class SeedrClient {
 
       // 2. Check root files for a direct match
       if (root.files && Array.isArray(root.files)) {
-        const matchingFile = root.files.find(f => {
+        let matchingFile = root.files.find(f => {
           return this.strictTitlesMatch(f.name || '', title);
         });
+
+        // Try looser match
+        if (!matchingFile) {
+          matchingFile = root.files.find(f => {
+            return this.titlesMatch(f.name || '', title);
+          });
+        }
+
+        // Fallback: If no file matched, but there is exactly ONE file in the root, and nothing else
+        if (!matchingFile && root.files.length === 1 && (!root.folders || root.folders.length === 0) && (!root.torrents || root.torrents.length === 0)) {
+          matchingFile = root.files[0];
+        }
 
         if (matchingFile) {
           try {
@@ -361,37 +424,41 @@ export class SeedrClient {
       // 3. Check folders for a match, and inspect files inside matching folders
       if (root.folders && Array.isArray(root.folders)) {
         // Find matching folders
-        const matchingFolders = root.folders.filter(folder => {
+        let matchingFolders = root.folders.filter(folder => {
           return this.strictTitlesMatch(folder.name || '', title);
         });
+
+        // Try looser match if no strict match
+        if (matchingFolders.length === 0) {
+          matchingFolders = root.folders.filter(folder => {
+            return this.titlesMatch(folder.name || '', title);
+          });
+        }
+
+        // Fallback: If no folders matched, but there is exactly ONE folder in the entire account and nothing else
+        if (matchingFolders.length === 0 && root.folders.length === 1 && (!root.torrents || root.torrents.length === 0) && (!root.files || root.files.length === 0)) {
+          matchingFolders = [root.folders[0]];
+        }
 
         if (matchingFolders.length > 0) {
           const allFoundFiles: SeedrFile[] = [];
 
           for (const folder of matchingFolders) {
             try {
-              const folderDetails = await this.getFolderContents(folder.id);
-              if (folderDetails.files && Array.isArray(folderDetails.files)) {
-                // Video files usually have play_video=true or standard extensions like mkv, mp4, avi, etc.
-                const videoFiles = folderDetails.files.filter(file => {
-                  const extension = (file.name || '').split('.').pop()?.toLowerCase() || '';
-                  const isVideoExt = ['mkv', 'mp4', 'avi', 'mov', 'webm', 'ts'].includes(extension);
-                  return file.play_video || isVideoExt;
-                });
+              const videoFiles = await this.getAllVideoFilesRecursively(folder.id);
 
-                for (const file of videoFiles) {
-                  try {
-                    const streamUrl = await this.getFileStreamUrl(file.folder_file_id);
-                    allFoundFiles.push({
-                      id: file.folder_file_id,
-                      name: file.name,
-                      size: file.size || 0,
-                      streamUrl,
-                      folderId: folder.id
-                    });
-                  } catch (err) {
-                    console.error(`Error getting stream URL for file ${file.name}:`, err);
-                  }
+              for (const file of videoFiles) {
+                try {
+                  const streamUrl = await this.getFileStreamUrl(file.folder_file_id);
+                  allFoundFiles.push({
+                    id: file.folder_file_id,
+                    name: file.name,
+                    size: file.size || 0,
+                    streamUrl,
+                    folderId: folder.id
+                  });
+                } catch (err) {
+                  console.error(`Error getting stream URL for file ${file.name}:`, err);
                 }
               }
             } catch (err) {
