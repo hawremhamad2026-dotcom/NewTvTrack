@@ -315,10 +315,16 @@ export class SeedrClient {
     const normB = this.normalizeString(titleB);
     
     if (!normA || !normB) return false;
-    
-    // Direct or substring match on normalized names (very reliable first check)
-    if (normA.includes(normB) || normB.includes(normA)) {
-      return true;
+
+    // Reject extremely short or generic folders like "S01", "S1", "Season 1", "Downloads"
+    const genericFolders = [
+      's01', 's02', 's03', 's04', 's05', 's06', 's07', 's08', 's09', 's10',
+      's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10',
+      'season1', 'season2', 'season3', 'season4', 'season5', 'season6', 'season7', 'season8', 'season9', 'season10',
+      'downloads', 'myfiles', 'torrents', 'media', 'videos', 'movies', 'tvshows'
+    ];
+    if (genericFolders.includes(normA) || genericFolders.includes(normB)) {
+      return normA === normB;
     }
 
     // Intelligent structure-aware match for seasons and episodes
@@ -326,24 +332,36 @@ export class SeedrClient {
     const parsedB = this.parseMediaTitle(titleB);
 
     if (parsedA.coreTitle && parsedB.coreTitle) {
+      const genericCores = ['the', 'season', 'complete', 'episode', 'series', 'show'];
+      if (genericCores.includes(parsedA.coreTitle) || genericCores.includes(parsedB.coreTitle)) {
+        if (parsedA.coreTitle !== parsedB.coreTitle) return false;
+      }
+
       // Titles must have a matching base core
       const titlesMatchBase = parsedA.coreTitle === parsedB.coreTitle || 
                               parsedA.coreTitle.includes(parsedB.coreTitle) || 
                               parsedB.coreTitle.includes(parsedA.coreTitle);
       
       if (titlesMatchBase) {
-        if (parsedA.isShow && parsedB.isShow) {
-          // If both are recognized as TV shows, they must share the same season
-          if (parsedA.season === parsedB.season) {
+        if (parsedA.isShow || parsedB.isShow) {
+          // If both specify seasons, they must match exactly
+          if (parsedA.season !== undefined && parsedB.season !== undefined) {
+            if (parsedA.season !== parsedB.season) return false;
+            
             // If both specify specific episodes, those episodes must match
             if (parsedA.episode !== undefined && parsedB.episode !== undefined) {
               return parsedA.episode === parsedB.episode;
             }
-            // If at least one is a season pack, they belong to the same season, so it is a match
             return true;
           }
-          return false;
-        } else if (!parsedA.isShow && !parsedB.isShow) {
+          // If only one has season, verify they don't contradict (e.g. S01 vs S02 in raw names)
+          const hasS1 = /s01|s1\b/i.test(titleA) || /s01|s1\b/i.test(titleB);
+          const hasS2 = /s02|s2\b/i.test(titleA) || /s02|s2\b/i.test(titleB);
+          const hasS3 = /s03|s3\b/i.test(titleA) || /s03|s3\b/i.test(titleB);
+          if ((hasS1 && hasS2) || (hasS1 && hasS3) || (hasS2 && hasS3)) return false;
+
+          return parsedA.coreTitle === parsedB.coreTitle;
+        } else {
           // If both are movies, verify release year if present
           if (parsedA.year !== undefined && parsedB.year !== undefined) {
             return parsedA.year === parsedB.year;
@@ -353,11 +371,19 @@ export class SeedrClient {
       }
     }
     
-    // Match on core cleaned titles (stripping release tags/groups) as a generic fallback
-    const coreA = this.cleanTorrentTitle(titleA);
-    const coreB = this.cleanTorrentTitle(titleB);
-    if (coreA && coreB && (coreA === coreB || coreA.includes(coreB) || coreB.includes(coreA))) {
-      return true;
+    // Direct or substring match on normalized names as final fallback (if length is safe)
+    if (normA === normB) return true;
+    
+    const minLength = Math.min(normA.length, normB.length);
+    if (minLength >= 5) {
+      if (normA.includes(normB) || normB.includes(normA)) {
+        const hasS1 = /s01|s1\b/i.test(titleA) || /s01|s1\b/i.test(titleB);
+        const hasS2 = /s02|s2\b/i.test(titleA) || /s02|s2\b/i.test(titleB);
+        const hasS3 = /s03|s3\b/i.test(titleA) || /s03|s3\b/i.test(titleB);
+        if ((hasS1 && hasS2) || (hasS1 && hasS3) || (hasS2 && hasS3)) return false;
+
+        return true;
+      }
     }
     
     return false;

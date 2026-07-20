@@ -1,27 +1,63 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, Play } from 'lucide-react';
+import { Loader2, AlertCircle, X } from 'lucide-react';
 
 interface WebtorPlayerProps {
-  magnetUrl: string;
+  magnet?: string;
+  magnetUrl?: string;
+  onClose?: () => void;
+  title?: string;
   className?: string;
 }
 
-export const WebtorPlayer: React.FC<WebtorPlayerProps> = ({ magnetUrl, className = '' }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [sdkLoaded, setSdkLoaded] = useState(false);
-  const [initError, setInitError] = useState<string | null>(null);
+export function WebtorPlayer({ magnet, magnetUrl, onClose, title, className }: WebtorPlayerProps) {
+  const containerId = "webtor-player-container";
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const scriptLoadedRef = useRef(false);
+  
+  const finalMagnet = magnet || magnetUrl || '';
 
   useEffect(() => {
-    // 1. Load Webtor SDK Script
-    const scriptId = 'webtor-sdk-script';
+    if (!finalMagnet) {
+      setError("No magnet link provided for playback.");
+      setIsLoading(false);
+      return;
+    }
+
+    // 1. Check if webtor script is already loaded
+    const scriptId = 'webtor-embed-sdk-script';
     let script = document.getElementById(scriptId) as HTMLScriptElement;
 
-    const handleLoad = () => {
-      setSdkLoaded(true);
-    };
+    const initPlayer = () => {
+      try {
+        const win = window as any;
+        win.webtor = win.webtor || [];
+        
+        // Clear previous players in the same div
+        const container = document.getElementById(containerId);
+        if (container) {
+          container.innerHTML = '';
+        }
 
-    const handleError = () => {
-      setInitError('Failed to load WebTor embedded player SDK.');
+        win.webtor.push({
+          id: containerId,
+          magnet: finalMagnet,
+          on: function(e: any) {
+            if (e.name === 'init') {
+              setIsLoading(false);
+            }
+          },
+        });
+      } catch (err: any) {
+        console.error("Webtor player init error:", err);
+        setError("Failed to initialize Webtor player. Please check your browser's third-party cookies or connection settings.");
+        setIsLoading(false);
+      }
     };
 
     if (!script) {
@@ -30,95 +66,68 @@ export const WebtorPlayer: React.FC<WebtorPlayerProps> = ({ magnetUrl, className
       script.src = 'https://cdn.jsdelivr.net/npm/@webtor/embed-sdk-js/dist/index.min.js';
       script.charset = 'utf-8';
       script.async = true;
-      script.addEventListener('load', handleLoad);
-      script.addEventListener('error', handleError);
+      script.onload = () => {
+        scriptLoadedRef.current = true;
+        initPlayer();
+      };
+      script.onerror = () => {
+        setError("Failed to load Webtor streaming engine from CDN. Check your connection.");
+        setIsLoading(false);
+      };
       document.body.appendChild(script);
     } else {
-      if ((window as any).webtor) {
-        setSdkLoaded(true);
-      } else {
-        script.addEventListener('load', handleLoad);
-        script.addEventListener('error', handleError);
-      }
+      // Script is already there, give it a tiny delay to ensure window.webtor is ready
+      setTimeout(() => {
+        initPlayer();
+      }, 100);
     }
 
     return () => {
-      if (script) {
-        script.removeEventListener('load', handleLoad);
-        script.removeEventListener('error', handleError);
-      }
+      // Cleanup previous player items
     };
-  }, []);
-
-  useEffect(() => {
-    if (!sdkLoaded) return;
-
-    // Generate a unique ID to avoid collision if there are multiple instances
-    const playerId = 'webtor-player-' + Math.random().toString(36).substring(2, 9);
-    
-    if (containerRef.current) {
-      containerRef.current.innerHTML = '';
-      const targetDiv = document.createElement('div');
-      targetDiv.id = playerId;
-      targetDiv.className = 'w-full h-full rounded-lg overflow-hidden bg-black';
-      containerRef.current.appendChild(targetDiv);
-
-      try {
-        const webtor = (window as any).webtor || [];
-        webtor.push({
-          id: playerId,
-          magnet: magnetUrl,
-          width: '100%',
-          height: '100%',
-          theme: 'dark',
-          lang: 'en',
-          on: function (e: any) {
-            if (e.name === 'torrent-error') {
-              console.warn('Webtor player error:', e);
-            }
-          },
-        });
-        (window as any).webtor = webtor;
-      } catch (err) {
-        console.error('Error initializing Webtor:', err);
-        setInitError('Error building embedded torrent player.');
-      }
-    }
-
-    return () => {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
-      }
-    };
-  }, [sdkLoaded, magnetUrl]);
+  }, [magnet]);
 
   return (
-    <div className={`relative bg-black w-full h-full flex flex-col items-center justify-center min-h-[300px] sm:min-h-[400px] lg:min-h-[500px] ${className}`}>
-      {/* Loading State Overlay */}
-      {!sdkLoaded && !initError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/90 z-10 gap-3">
-          <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider animate-pulse">
-            Loading Webtor Core Engine...
-          </p>
+    <div className="flex flex-col bg-zinc-950/95 border border-white/5 rounded-2xl overflow-hidden shadow-2xl relative w-full h-full min-h-[450px]">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-[#0A0A0A] border-b border-white/5 z-10">
+        <div className="flex flex-col max-w-[80%]">
+          <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Webtor WebRTC In-App Streamer</span>
+          <p className="text-xs font-semibold text-zinc-100 truncate mt-0.5">{title || "Stream Playback"}</p>
         </div>
-      )}
+        {onClose && (
+          <button 
+            onClick={onClose}
+            className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer text-zinc-400 hover:text-white"
+          >
+            <X className="w-4.5 h-4.5" />
+          </button>
+        )}
+      </div>
 
-      {/* Error state */}
-      {initError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 p-6 z-10 gap-2 text-center">
-          <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 mb-2">
-            <Play className="w-5 h-5 rotate-90" />
+      {/* Main stage */}
+      <div className="relative flex-grow bg-black flex items-center justify-center min-h-[350px]">
+        {isLoading && !error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-20 gap-3">
+            <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+            <p className="text-xs font-medium text-zinc-400">Booting Webtor WebRTC streaming node...</p>
           </div>
-          <p className="text-sm font-bold text-white">{initError}</p>
-          <p className="text-xs text-zinc-500 max-w-sm">
-            Please retry, or use the "WebPlayer" link to open Webtor in a separate browser tab instead.
-          </p>
-        </div>
-      )}
+        )}
 
-      {/* Target Container for Webtor SDK */}
-      <div ref={containerRef} className="w-full h-full" />
+        {error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/95 z-20 gap-3 px-6 text-center">
+            <AlertCircle className="w-8 h-8 text-red-500" />
+            <p className="text-xs font-semibold text-zinc-300">{error}</p>
+            <p className="text-[10px] text-zinc-500 max-w-[280px]">Ensure third-party cookies or scripts are not blocked in your browser settings (required for Webtor iframe player).</p>
+          </div>
+        )}
+
+        {/* The video container */}
+        <div 
+          id={containerId} 
+          className="w-full h-full min-h-[350px] flex-grow webtor-embedded-frame"
+        />
+      </div>
     </div>
   );
-};
+}
