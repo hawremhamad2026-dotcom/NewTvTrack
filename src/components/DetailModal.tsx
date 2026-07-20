@@ -11,6 +11,7 @@ import { fetchShowSeasons, getImageUrl, fetchMediaDetails, fetchMediaVideos, fet
 import { getPredefinedSeasons, getPredefinedEpisodeRating, getUpcomingEpisodesTimeline } from '../data';
 import { AnimatePresence, motion } from 'motion/react';
 import HlsVideoPlayer from './HlsVideoPlayer';
+import { WebtorPlayer } from './WebtorPlayer';
 import { EpisodeRatingsTableModal } from './EpisodeRatingsTableModal';
 
 interface DetailModalProps {
@@ -2466,12 +2467,29 @@ export function DetailModal({
                                   )}
 
                                   {/* WebTor Playback */}
+                                  <button
+                                    onClick={() => {
+                                      recordWatchHistory('browser', webtorUrl);
+                                      setActivePlayerUrl(`webtor://${encodeURIComponent(magnetUrl)}`);
+                                      setConfirmedPlayInBrowser(true);
+                                      setLoadingPlayer(false);
+                                      setTimeout(() => {
+                                        scrollToPlayerArea();
+                                      }, 100);
+                                    }}
+                                    className="flex-1 sm:flex-none text-center px-3 py-2 bg-blue-600/15 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/20 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                    title="Play directly inside this app using the integrated Webtor player"
+                                  >
+                                    <Play className="w-3 h-3 fill-current" />
+                                    <span>Play in App</span>
+                                  </button>
+
                                   <a
                                     href={webtorUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex-1 sm:flex-none text-center px-3 py-2 bg-blue-600/15 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/20 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-1"
-                                    title="Play directly in browser via WebTor cloud player"
+                                    className="flex-1 sm:flex-none text-center px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all border border-white/5 flex items-center justify-center gap-1"
+                                    title="Play in a new tab via WebTor cloud player"
                                   >
                                     <ExternalLink className="w-3 h-3" />
                                     <span>WebPlayer</span>
@@ -3028,6 +3046,11 @@ export function DetailModal({
                     </button>
                   </div>
                 </div>
+              ) : activePlayerUrl.startsWith('webtor://') ? (
+                <WebtorPlayer
+                  magnetUrl={decodeURIComponent(activePlayerUrl.substring(9))}
+                  className="w-full h-full"
+                />
               ) : (() => {
                 const urlLower = activePlayerUrl.toLowerCase();
                 const isDirect = urlLower.endsWith('.mp4') || 

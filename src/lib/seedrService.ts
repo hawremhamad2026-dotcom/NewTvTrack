@@ -267,6 +267,45 @@ export class SeedrClient {
   }
 
   /**
+   * Parses media titles to extract core title, show status, season, and episode.
+   */
+  private parseMediaTitle(rawTitle: string) {
+    const clean = rawTitle.toLowerCase().replace(/[\.\_\-\[\]\(\)\{\}\+\/]/g, ' ').trim();
+    
+    // S01E05 style matching
+    const s01e05Match = clean.match(/\bS(\d+)E(\d+)\b/i) || clean.match(/\bS(\d+)\s*Ep?(\d+)\b/i);
+    if (s01e05Match) {
+      const season = parseInt(s01e05Match[1], 10);
+      const episode = parseInt(s01e05Match[2], 10);
+      const idx = clean.indexOf(s01e05Match[0]);
+      const coreTitle = clean.substring(0, idx).trim().replace(/[^a-z0-9]/g, '');
+      return { isShow: true, coreTitle, season, episode, year: undefined as number | undefined };
+    }
+
+    // S01 or Season 1 Pack style matching
+    const s01Match = clean.match(/\bS(\d+)\b/i) || clean.match(/\bSeason\s*(\d+)\b/i);
+    if (s01Match) {
+      const season = parseInt(s01Match[1], 10);
+      const idx = clean.indexOf(s01Match[0]);
+      const coreTitle = clean.substring(0, idx).trim().replace(/[^a-z0-9]/g, '');
+      return { isShow: true, coreTitle, season, episode: undefined as number | undefined, year: undefined as number | undefined };
+    }
+
+    // Movie release year matching
+    const yearMatch = clean.match(/\b(19\d{2}|20[0-2]\d)\b/);
+    if (yearMatch) {
+      const year = parseInt(yearMatch[1], 10);
+      const idx = clean.indexOf(yearMatch[0]);
+      const coreTitle = clean.substring(0, idx).trim().replace(/[^a-z0-9]/g, '');
+      return { isShow: false, coreTitle, season: undefined as number | undefined, episode: undefined as number | undefined, year };
+    }
+
+    // Fallback simple alphanumeric title
+    const coreTitle = clean.replace(/[^a-z0-9]/g, '');
+    return { isShow: false, coreTitle, season: undefined as number | undefined, episode: undefined as number | undefined, year: undefined as number | undefined };
+  }
+
+  /**
    * Robust title matching helper
    */
   private titlesMatch(titleA: string, titleB: string): boolean {
@@ -277,15 +316,46 @@ export class SeedrClient {
     
     if (!normA || !normB) return false;
     
-    // Direct or substring match on normalized names
+    // Direct or substring match on normalized names (very reliable first check)
     if (normA.includes(normB) || normB.includes(normA)) {
       return true;
     }
+
+    // Intelligent structure-aware match for seasons and episodes
+    const parsedA = this.parseMediaTitle(titleA);
+    const parsedB = this.parseMediaTitle(titleB);
+
+    if (parsedA.coreTitle && parsedB.coreTitle) {
+      // Titles must have a matching base core
+      const titlesMatchBase = parsedA.coreTitle === parsedB.coreTitle || 
+                              parsedA.coreTitle.includes(parsedB.coreTitle) || 
+                              parsedB.coreTitle.includes(parsedA.coreTitle);
+      
+      if (titlesMatchBase) {
+        if (parsedA.isShow && parsedB.isShow) {
+          // If both are recognized as TV shows, they must share the same season
+          if (parsedA.season === parsedB.season) {
+            // If both specify specific episodes, those episodes must match
+            if (parsedA.episode !== undefined && parsedB.episode !== undefined) {
+              return parsedA.episode === parsedB.episode;
+            }
+            // If at least one is a season pack, they belong to the same season, so it is a match
+            return true;
+          }
+          return false;
+        } else if (!parsedA.isShow && !parsedB.isShow) {
+          // If both are movies, verify release year if present
+          if (parsedA.year !== undefined && parsedB.year !== undefined) {
+            return parsedA.year === parsedB.year;
+          }
+          return true;
+        }
+      }
+    }
     
-    // Match on core cleaned titles (stripping release tags/groups)
+    // Match on core cleaned titles (stripping release tags/groups) as a generic fallback
     const coreA = this.cleanTorrentTitle(titleA);
     const coreB = this.cleanTorrentTitle(titleB);
-    
     if (coreA && coreB && (coreA === coreB || coreA.includes(coreB) || coreB.includes(coreA))) {
       return true;
     }
@@ -364,11 +434,6 @@ export class SeedrClient {
           });
         }
 
-        // Fallback: If no torrent matched, but there is exactly ONE torrent in the entire account and nothing else
-        if (!matchingTorrent && root.torrents.length === 1 && (!root.folders || root.folders.length === 0) && (!root.files || root.files.length === 0)) {
-          matchingTorrent = root.torrents[0];
-        }
-
         if (matchingTorrent) {
           // Calculate progress percentage
           let progress = 0;
@@ -396,11 +461,6 @@ export class SeedrClient {
           matchingFile = root.files.find(f => {
             return this.titlesMatch(f.name || '', title);
           });
-        }
-
-        // Fallback: If no file matched, but there is exactly ONE file in the root, and nothing else
-        if (!matchingFile && root.files.length === 1 && (!root.folders || root.folders.length === 0) && (!root.torrents || root.torrents.length === 0)) {
-          matchingFile = root.files[0];
         }
 
         if (matchingFile) {
@@ -433,11 +493,6 @@ export class SeedrClient {
           matchingFolders = root.folders.filter(folder => {
             return this.titlesMatch(folder.name || '', title);
           });
-        }
-
-        // Fallback: If no folders matched, but there is exactly ONE folder in the entire account and nothing else
-        if (matchingFolders.length === 0 && root.folders.length === 1 && (!root.torrents || root.torrents.length === 0) && (!root.files || root.files.length === 0)) {
-          matchingFolders = [root.folders[0]];
         }
 
         if (matchingFolders.length > 0) {
