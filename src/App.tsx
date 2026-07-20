@@ -13,6 +13,7 @@ import { PasscodeScreen } from './components/PasscodeScreen';
 import { SitePasswordGate } from './components/SitePasswordGate';
 import HlsVideoPlayer from './components/HlsVideoPlayer';
 import { ImdbImportWizard } from './components/ImdbImportWizard';
+import { PersonCreditsModal } from './components/PersonCreditsModal';
 import { MediaItem, MediaType } from './types';
 import { fetchTrending, fetchDiscover, fetchPopular, searchMedia, GENRE_MAP, fetchTraktList, fetchMediaRecommendations } from './tmdb';
 import { AnimatePresence } from 'motion/react';
@@ -50,6 +51,7 @@ import {
   Sun,
   Moon,
   EyeOff,
+  ArrowUpRight,
 } from 'lucide-react';
 
 function formatHoursSpent(totalHours: number): string {
@@ -185,6 +187,7 @@ export default function App() {
   
   const [activeTab, setActiveTab] = useState<TabType>('tv');
   const [selectedMediaItem, setSelectedMediaItem] = useState<MediaItem | null>(null);
+  const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const [isImdbImportOpen, setIsImdbImportOpen] = useState<boolean>(false);
   const [autoPlayConfig, setAutoPlayConfig] = useState<{
     server?: string;
@@ -2568,12 +2571,15 @@ export default function App() {
                                 <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
                                   {/* Person Header */}
                                   <div className="flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3">
+                                    <button 
+                                      onClick={() => setSelectedPersonId(person.id)}
+                                      className="flex items-center gap-3 group text-left cursor-pointer outline-none"
+                                    >
                                       <div className="relative shrink-0">
                                         <img 
                                           src={person.profilePath || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=150&auto=format&fit=crop'} 
                                           alt={person.name} 
-                                          className="w-12 h-12 rounded-full object-cover border border-white/10"
+                                          className="w-12 h-12 rounded-full object-cover border border-white/10 group-hover:border-amber-500/50 transition-colors"
                                           referrerPolicy="no-referrer"
                                         />
                                         <span className="absolute -top-1 -left-1 w-5 h-5 bg-amber-500 rounded-full border border-zinc-950 flex items-center justify-center text-[10px] font-black text-zinc-950">
@@ -2581,11 +2587,14 @@ export default function App() {
                                         </span>
                                       </div>
                                       <div>
-                                        <h4 className="font-display font-extrabold text-sm text-zinc-100">{person.name}</h4>
-                                        <p className="text-[10px] text-zinc-500 font-medium">Cast Member</p>
+                                        <h4 className="font-display font-extrabold text-sm text-zinc-100 group-hover:text-amber-400 transition-colors flex items-center gap-1.5">
+                                          <span>{person.name}</span>
+                                          <ArrowUpRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        </h4>
+                                        <p className="text-[10px] text-zinc-500 font-medium">Cast Member • Click for full filmography</p>
                                       </div>
-                                    </div>
-                                    <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-mono font-extrabold rounded-lg">
+                                    </button>
+                                    <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-mono font-extrabold rounded-lg shrink-0">
                                       {person.count} {person.count === 1 ? 'Title' : 'Titles'} Watched
                                     </span>
                                   </div>
@@ -2654,12 +2663,15 @@ export default function App() {
                                 <div key={person.id} className="bg-[#050505]/60 border border-white/5 p-4 rounded-xl space-y-3 hover:border-white/10 transition-all">
                                   {/* Person Header */}
                                   <div className="flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3">
+                                    <button 
+                                      onClick={() => setSelectedPersonId(person.id)}
+                                      className="flex items-center gap-3 group text-left cursor-pointer outline-none"
+                                    >
                                       <div className="relative shrink-0">
                                         <img 
                                           src={person.profilePath || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=150&auto=format&fit=crop'} 
                                           alt={person.name} 
-                                          className="w-12 h-12 rounded-full object-cover border border-white/10"
+                                          className="w-12 h-12 rounded-full object-cover border border-white/10 group-hover:border-emerald-500/50 transition-colors"
                                           referrerPolicy="no-referrer"
                                         />
                                         <span className="absolute -top-1 -left-1 w-5 h-5 bg-amber-500 rounded-full border border-zinc-950 flex items-center justify-center text-[10px] font-black text-zinc-950">
@@ -2667,11 +2679,14 @@ export default function App() {
                                         </span>
                                       </div>
                                       <div>
-                                        <h4 className="font-display font-extrabold text-sm text-zinc-100">{person.name}</h4>
-                                        <p className="text-[10px] text-zinc-500 font-medium">Director / Creator</p>
+                                        <h4 className="font-display font-extrabold text-sm text-zinc-100 group-hover:text-emerald-400 transition-colors flex items-center gap-1.5">
+                                          <span>{person.name}</span>
+                                          <ArrowUpRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        </h4>
+                                        <p className="text-[10px] text-zinc-500 font-medium">Director / Creator • Click for full filmography</p>
                                       </div>
-                                    </div>
-                                    <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-mono font-extrabold rounded-lg">
+                                    </button>
+                                    <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-mono font-extrabold rounded-lg shrink-0">
                                       {person.count} {person.count === 1 ? 'Title' : 'Titles'} Watched
                                     </span>
                                   </div>
@@ -3466,6 +3481,7 @@ export default function App() {
               toggleSeasonCompleted={state.toggleSeasonCompleted}
               toggleStoppedWatching={state.toggleStoppedWatching}
               importMediaItem={state.importMediaItem}
+              onPersonClick={(id) => setSelectedPersonId(id)}
             />
           )}
         </AnimatePresence>
@@ -3494,6 +3510,32 @@ export default function App() {
           onClose={() => setIsImdbImportOpen(false)}
           importMultipleMediaItems={state.importMultipleMediaItems}
         />
+
+        {/* PERSON FILMOGRAPHY / CREDITS MODAL */}
+        <AnimatePresence>
+          {selectedPersonId !== null && (
+            <PersonCreditsModal
+              personId={selectedPersonId}
+              onClose={() => setSelectedPersonId(null)}
+              onSelectMedia={(item) => {
+                // Determine if we already have this item imported
+                const localItem = item.type === 'show'
+                  ? state.shows.find(s => s.id === item.id)
+                  : state.movies.find(m => m.id === item.id);
+
+                if (!localItem) {
+                  // Import the item locally so we have full metadata access
+                  state.importMediaItem(item);
+                }
+
+                // Show details modal for this item
+                setSelectedMediaItem(localItem || item);
+                // Close the person filmography profile modal
+                setSelectedPersonId(null);
+              }}
+            />
+          )}
+        </AnimatePresence>
 
       </div>
     </div>

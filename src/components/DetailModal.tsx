@@ -41,6 +41,7 @@ interface DetailModalProps {
   ) => void;
   toggleStoppedWatching: (showId: number, fullItem?: MediaItem) => void;
   importMediaItem?: (item: MediaItem) => void;
+  onPersonClick?: (personId: number) => void;
 }
 
 
@@ -119,6 +120,7 @@ export function DetailModal({
   toggleSeasonCompleted,
   toggleStoppedWatching,
   importMediaItem,
+  onPersonClick,
 }: DetailModalProps) {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const isEmbedded = typeof window !== 'undefined' && window.self !== window.top;
@@ -3458,6 +3460,38 @@ export function DetailModal({
                 </p>
               </div>
 
+              {/* DIRECTORS / CREATORS LIST */}
+              {item.directors && item.directors.length > 0 && (
+                <div className="space-y-3 pt-4 border-t border-white/5">
+                  <h2 className="font-display font-semibold text-zinc-200 text-sm uppercase tracking-wider flex items-center gap-2 border-b border-white/5 pb-2">
+                    <Users className="w-4 h-4 text-emerald-500" />
+                    Directors / Creators
+                  </h2>
+                  <div className="flex overflow-x-auto gap-3 pb-2 custom-scrollbar snap-x">
+                    {item.directors.map(person => (
+                      <button
+                        key={person.id}
+                        onClick={() => onPersonClick?.(person.id)}
+                        className="flex flex-col items-center w-[80px] shrink-0 snap-start group text-left outline-none cursor-pointer"
+                      >
+                        <div className="w-[70px] h-[70px] rounded-full overflow-hidden bg-zinc-900 border border-white/5 shadow-md flex items-center justify-center mb-2 group-hover:border-emerald-500/50 transition-all duration-300 relative">
+                          {person.profilePath ? (
+                            <img src={person.profilePath} alt={person.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" loading="lazy" />
+                          ) : (
+                            <span className="text-zinc-600 text-xs font-bold uppercase">{person.name.substring(0, 2)}</span>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
+                            <ExternalLink className="w-4 h-4 text-emerald-400" />
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-semibold text-center text-zinc-200 truncate w-full group-hover:text-emerald-400 transition-colors">{person.name}</span>
+                        <span className="text-[9px] text-zinc-500 text-center truncate w-full">Director / Creator</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* CAST LIST */}
               {item.cast && item.cast.length > 0 && (
                 <div className="space-y-3 pt-4 border-t border-white/5">
@@ -3467,17 +3501,24 @@ export function DetailModal({
                   </h2>
                   <div className="flex overflow-x-auto gap-3 pb-2 custom-scrollbar snap-x">
                     {item.cast.map(person => (
-                      <div key={person.id} className="flex flex-col items-center w-[80px] shrink-0 snap-start">
-                        <div className="w-[70px] h-[70px] rounded-full overflow-hidden bg-zinc-900 border border-white/5 shadow-md flex items-center justify-center mb-2">
+                      <button
+                        key={person.id}
+                        onClick={() => onPersonClick?.(person.id)}
+                        className="flex flex-col items-center w-[80px] shrink-0 snap-start group text-left outline-none cursor-pointer"
+                      >
+                        <div className="w-[70px] h-[70px] rounded-full overflow-hidden bg-zinc-900 border border-white/5 shadow-md flex items-center justify-center mb-2 group-hover:border-amber-500/50 transition-all duration-300 relative">
                           {person.profilePath ? (
-                            <img src={person.profilePath} alt={person.name} className="w-full h-full object-cover" loading="lazy" />
+                            <img src={person.profilePath} alt={person.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" loading="lazy" />
                           ) : (
                             <span className="text-zinc-600 text-xs font-bold uppercase">{person.name.substring(0, 2)}</span>
                           )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
+                            <ExternalLink className="w-4 h-4 text-amber-400" />
+                          </div>
                         </div>
-                        <span className="text-[11px] font-semibold text-center text-zinc-200 truncate w-full">{person.name}</span>
+                        <span className="text-[11px] font-semibold text-center text-zinc-200 truncate w-full group-hover:text-amber-400 transition-colors">{person.name}</span>
                         <span className="text-[10px] text-zinc-500 text-center truncate w-full" title={person.character}>{person.character}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>

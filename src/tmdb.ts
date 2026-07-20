@@ -736,3 +736,66 @@ export async function fetchKurdcinemaComments(url: string, type: 'movie' | 'seri
     return null;
   }
 }
+
+/**
+ * Fetch a person's biography, details, and all of their movie and TV show credits (cast & crew).
+ */
+export async function fetchPersonCredits(personId: number): Promise<{
+  person: {
+    id: number;
+    name: string;
+    biography: string;
+    profilePath: string | null;
+    knownForDepartment: string;
+    birthday: string | null;
+    placeOfBirth: string | null;
+  };
+  credits: MediaItem[];
+}> {
+  const personData = await tmdbFetch(`/person/${personId}`);
+  const creditsData = await tmdbFetch(`/person/${personId}/combined_credits`);
+  
+  const person = {
+    id: personData.id,
+    name: personData.name || 'Unknown Person',
+    biography: personData.biography || 'No biography available.',
+    profilePath: personData.profile_path ? getImageUrl(personData.profile_path, 'w342') : null,
+    knownForDepartment: personData.known_for_department || '',
+    birthday: personData.birthday || null,
+    placeOfBirth: personData.place_of_birth || null,
+  };
+
+  // Combine cast and crew credits (crew is important for directors)
+  const rawCredits = [
+    ...(creditsData.cast || []).map((item: any) => ({ ...item, creditType: 'cast' })),
+    ...(creditsData.crew || []).map((item: any) => ({ ...item, creditType: 'crew' }))
+  ];
+
+  // De-duplicate credits by media_type and id
+  const seen = new Set<string>();
+  const uniqueCredits: any[] = [];
+  for (const item of rawCredits) {
+    const key = `${item.media_type}-${item.id}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueCredits.push(item);
+    } else {
+      const existingIdx = uniqueCredits.findIndex(x => `${x.media_type}-${x.id}` === key);
+      if (existingIdx !== -1 && item.job === 'Director') {
+        uniqueCredits[existingIdx] = item; // Prioritize Director job for crew credit
+      }
+    }
+  }
+
+  // Sort unique credits by popularity descending
+  uniqueCredits.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+
+  // Limit to top 50 most popular and transform
+  const credits = uniqueCredits
+    .filter((item: any) => item.media_type === 'movie' || item.media_type === 'tv')
+    .slice(0, 50)
+    .map((item: any) => transformMedia(item, item.media_type === 'tv' ? 'show' : 'movie'));
+
+  return { person, credits };
+}
+
