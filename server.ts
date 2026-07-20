@@ -13,6 +13,7 @@ import { loadDb, saveDb } from "./src/db/jsonDb.js";
 import { getDb, initDb, getUsePostgres } from "./src/db/index.js";
 import { userProfiles, mediaItems, watchedEpisodes } from "./src/db/schema.js";
 import { eq, and } from "drizzle-orm";
+import compression from "compression";
 
 const localDb = loadDb();
 
@@ -42,6 +43,7 @@ function getGeminiClient(): GoogleGenAI {
 
 async function startServer() {
   const app = express();
+  app.use(compression());
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   
   app.use(express.json({ limit: '50mb' }));

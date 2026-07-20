@@ -143,6 +143,7 @@ export function useAppState(isSiteLocked = false) {
           isLoadedRef.current = true;
           hasChangesRef.current = false;
           setLoadFailed(false);
+          setIsLoaded(true);
         } else {
           console.warn('Failed to load state from cloud:', res.statusText);
           loadFailedRef.current = true;
@@ -152,8 +153,6 @@ export function useAppState(isSiteLocked = false) {
         console.warn('Failed to load state from cloud:', e);
         loadFailedRef.current = true;
         setLoadFailed(true);
-      } finally {
-        setIsLoaded(true);
       }
     };
     loadState();
