@@ -1,0 +1,68 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Unsigned iOS IPA
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install Base Dependencies
+        run: npm install
+
+      - name: Build Web Application
+        run: npm run build
+
+      - name: Install Capacitor Core & CLI
+        run: npm install @capacitor/core @capacitor/cli @capacitor/ios
+
+      - name: Initialize Capacitor Config
+        run: |
+          npx cap init KurdCinema com.kurdcinema.app --web-dir=dist || true
+
+      - name: Add iOS Platform
+        run: npx cap add ios
+
+      - name: Sync Web Assets to iOS
+        run: npx cap sync ios
+
+      - name: Build Xcode Project (Unsigned)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+
+      - name: Package App into IPA
+        run: |
+          cd ios/App
+          mkdir -p build/Payload
+          # Find the built .app file and copy it to Payload
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "App.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH="DerivedData/App/Build/Products/Release-iphoneos/App.app"
+          fi
+          echo "Copying App from: $APP_PATH"
+          cp -r "$APP_PATH" build/Payload/
+          cd build
+          zip -r ../../../KurdCinema-unsigned.ipa Payload
+
+      - name: Upload Unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: kurdcinema-ios-ipa
+          path: KurdCinema-unsigned.ipa
+          retention-days: 7

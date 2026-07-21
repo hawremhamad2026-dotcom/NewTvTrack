@@ -1,0 +1,13 @@
+{
+  "appId": "com.kurdcinema.app",
+  "appName": "KurdCinema",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": ["*"]
+  },
+  "ios": {
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}
