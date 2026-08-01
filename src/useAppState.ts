@@ -269,16 +269,170 @@ export function useAppState(isSiteLocked = false) {
     }
   };
 
-  const importState = (importedData: any) => {
+  const importState = (importedData: any): boolean => {
     if (!importedData || typeof importedData !== 'object') {
-      return;
+      return false;
     }
-    setState({
-      shows: importedData.shows,
-      movies: importedData.movies,
-      watchedEpisodes: importedData.watchedEpisodes,
-      favorites: importedData.favorites,
+
+    let rawShows: any[] = [];
+    let rawMovies: any[] = [];
+    let rawWatchedEpisodes: Record<number, Record<string, boolean>> = {};
+    let rawFavorites: number[] = [];
+
+    if (Array.isArray(importedData)) {
+      importedData.forEach((item: any) => {
+        if (!item || typeof item !== 'object') return;
+        const typeLower = String(item.type || '').toLowerCase();
+        if (typeLower.includes('series') || typeLower.includes('show') || typeLower.includes('tv')) {
+          rawShows.push(item);
+        } else {
+          rawMovies.push(item);
+        }
+      });
+    } else {
+      if (Array.isArray(importedData.shows)) rawShows.push(...importedData.shows);
+      if (Array.isArray(importedData.movies)) rawMovies.push(...importedData.movies);
+      if (Array.isArray(importedData.items)) {
+        importedData.items.forEach((item: any) => {
+          if (!item || typeof item !== 'object') return;
+          const typeLower = String(item.type || '').toLowerCase();
+          if (typeLower.includes('series') || typeLower.includes('show') || typeLower.includes('tv')) {
+            rawShows.push(item);
+          } else {
+            rawMovies.push(item);
+          }
+        });
+      }
+      if (Array.isArray(importedData.watchlist)) {
+        importedData.watchlist.forEach((item: any) => {
+          if (!item || typeof item !== 'object') return;
+          const typeLower = String(item.type || '').toLowerCase();
+          if (typeLower.includes('series') || typeLower.includes('show') || typeLower.includes('tv')) {
+            rawShows.push(item);
+          } else {
+            rawMovies.push(item);
+          }
+        });
+      }
+
+      if (importedData.watchedEpisodes && typeof importedData.watchedEpisodes === 'object') {
+        rawWatchedEpisodes = { ...importedData.watchedEpisodes };
+      }
+
+      if (Array.isArray(importedData.favorites)) {
+        rawFavorites = importedData.favorites.map(Number).filter(Boolean);
+      }
+    }
+
+    if (rawShows.length === 0 && rawMovies.length === 0) {
+      return false;
+    }
+
+    // Process and enrich shows
+    const processedShows: MediaItem[] = rawShows.map((s: any) => {
+      const isFav = rawFavorites.includes(Number(s.id)) || !!s.isFavorite;
+      const hasWatched = rawWatchedEpisodes[s.id] && Object.keys(rawWatchedEpisodes[s.id]).length > 0;
+      const isActive = s.inWatchlist || isFav || s.userRating != null || s.completed || s.stoppedWatching || hasWatched;
+      
+      const numSeasons = s.seasonsCount || (s.seasons ? s.seasons.length : 1);
+      const numEps = s.episodesCount || (s.seasons ? s.seasons.reduce((acc: number, sea: any) => acc + (sea.episodes ? sea.episodes.length : 0), 0) : numSeasons * 10);
+
+      return {
+        ...s,
+        id: Number(s.id) || Math.floor(Math.random() * 1000000),
+        title: s.title || s.name || 'Untitled Show',
+        type: 'show',
+        inWatchlist: isActive ? (s.inWatchlist ?? true) : true,
+        completed: !!s.completed,
+        seasonsCount: numSeasons,
+        episodesCount: numEps,
+        isFavorite: isFav
+      };
     });
+
+    // Process and enrich movies
+    const processedMovies: MediaItem[] = rawMovies.map((m: any) => {
+      const isFav = rawFavorites.includes(Number(m.id)) || !!m.isFavorite;
+      const isActive = m.inWatchlist || isFav || m.userRating != null || m.completed;
+
+      return {
+        ...m,
+        id: Number(m.id) || Math.floor(Math.random() * 1000000),
+        title: m.title || m.name || 'Untitled Movie',
+        type: 'movie',
+        inWatchlist: isActive ? (m.inWatchlist ?? true) : true,
+        completed: !!m.completed,
+        isFavorite: isFav
+      };
+    });
+
+    // For any show marked completed or with episodes, ensure watchedEpisodes map is populated
+    processedShows.forEach(s => {
+      if (s.completed || (rawWatchedEpisodes[s.id] && Object.keys(rawWatchedEpisodes[s.id]).length > 0)) {
+        const existingMap = rawWatchedEpisodes[s.id] || {};
+        if (s.seasons && s.seasons.length > 0) {
+          s.seasons.forEach(season => {
+            if (season.episodes) {
+              season.episodes.forEach(ep => {
+                existingMap[`S${season.seasonNumber}E${ep.episode}`] = true;
+              });
+            }
+          });
+        }
+        if (Object.keys(existingMap).length === 0) {
+          const numSeasons = s.seasonsCount || 1;
+          const totalEps = s.episodesCount || (numSeasons * 10);
+          const epsPerSeason = Math.max(1, Math.ceil(totalEps / numSeasons));
+          for (let seasonNum = 1; seasonNum <= numSeasons; seasonNum++) {
+            for (let epNum = 1; epNum <= epsPerSeason; epNum++) {
+              existingMap[`S${seasonNum}E${epNum}`] = true;
+            }
+          }
+        }
+        rawWatchedEpisodes[s.id] = existingMap;
+      }
+    });
+
+    const finalFavorites = rawFavorites.length > 0 
+      ? rawFavorites 
+      : processedShows.concat(processedMovies as any).filter(x => x.isFavorite).map(x => x.id);
+
+    const finalState: SavedState = {
+      shows: processedShows,
+      movies: processedMovies,
+      watchedEpisodes: rawWatchedEpisodes,
+      favorites: finalFavorites,
+      updatedAt: Date.now()
+    };
+
+    // Update safety refs so saveState won't block saving
+    isResettingRef.current = true;
+    initialLoadedCountRef.current = {
+      shows: processedShows.length,
+      movies: processedMovies.length,
+      watchedEpisodes: Object.keys(rawWatchedEpisodes).length
+    };
+    hasChangesRef.current = true;
+
+    // Set state
+    setRawState(finalState);
+
+    // Synchronously persist to localStorage right away
+    try {
+      const strippedShows = processedShows.map(({ seasons, ...s }) => s);
+      const dataToSave = {
+        shows: strippedShows,
+        movies: processedMovies,
+        watchedEpisodes: rawWatchedEpisodes,
+        favorites: finalFavorites,
+        updatedAt: Date.now()
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    } catch (e) {
+      console.warn('Failed synchronous localStorage write during importState:', e);
+    }
+
+    return true;
   };
 
   // Background pre-fetch details (including cast/directors) for all active shows and movies that are missing them
@@ -1020,6 +1174,14 @@ export function useAppState(isSiteLocked = false) {
           updatedFavorites.push(item.id);
         }
       });
+
+      isResettingRef.current = true;
+      initialLoadedCountRef.current = {
+        shows: updatedShows.length,
+        movies: updatedMovies.length,
+        watchedEpisodes: Object.keys(updatedWatchedEpisodes).length
+      };
+      hasChangesRef.current = true;
 
       return {
         ...prev,

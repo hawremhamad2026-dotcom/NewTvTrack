@@ -125,10 +125,13 @@ export default function App() {
       try {
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
-        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.shows) || !Array.isArray(parsed.movies)) {
-          throw new Error('Invalid backup file structure.');
+        if (!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))) {
+          throw new Error('Invalid JSON file format.');
         }
-        state.importState(parsed);
+        const success = state.importState(parsed);
+        if (success === false) {
+          throw new Error('No valid shows or movies found in the JSON file.');
+        }
         setImportSuccess(true);
         setTimeout(() => setImportSuccess(false), 4000);
       } catch (err: any) {
