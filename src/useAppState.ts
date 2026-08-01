@@ -1119,14 +1119,28 @@ export function useAppState(isSiteLocked = false) {
     let tvHours = 0;
     
     // Count all watched episodes across ALL shows in our tracked database
+    enrichedShows.forEach(show => {
+      const watchedEpKeysCount = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+      let count = watchedEpKeysCount;
+      if (show.completed) {
+        const total = (show.episodesCount && show.episodesCount > 0) ? show.episodesCount : 10;
+        if (count < total) {
+          count = total;
+        }
+      }
+      totalEpisodesWatched += count;
+      const runtime = (show.runtime && show.runtime > 0) ? show.runtime : 45;
+      tvHours += (count * runtime) / 60;
+    });
+
+    // Also count any watchedEpisodes for shows not currently in enrichedShows
     Object.keys(state.watchedEpisodes).forEach(showIdStr => {
       const showId = Number(showIdStr);
-      const epsWatched = Object.keys(state.watchedEpisodes[showId] || {}).length;
-      totalEpisodesWatched += epsWatched;
-      
-      const show = enrichedShows.find(s => s.id === showId);
-      const runtime = (show && show.runtime > 0) ? show.runtime : 45;
-      tvHours += (epsWatched * runtime) / 60;
+      if (!enrichedShows.some(s => s.id === showId)) {
+        const epsWatched = Object.keys(state.watchedEpisodes[showId] || {}).length;
+        totalEpisodesWatched += epsWatched;
+        tvHours += (epsWatched * 45) / 60;
+      }
     });
 
     const completedMovies = enrichedMovies
@@ -1142,8 +1156,8 @@ export function useAppState(isSiteLocked = false) {
       movieHours += (m.runtime > 0 ? m.runtime : 120) / 60;
     });
 
-    const showsWatchedCount = Object.keys(state.watchedEpisodes).filter(
-      showIdStr => Object.keys(state.watchedEpisodes[Number(showIdStr)] || {}).length > 0
+    const showsWatchedCount = enrichedShows.filter(s => 
+      s.completed || (state.watchedEpisodes[s.id] && Object.keys(state.watchedEpisodes[s.id]).length > 0)
     ).length;
 
     const stats: UserStats = {

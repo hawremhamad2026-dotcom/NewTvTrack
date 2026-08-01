@@ -653,18 +653,20 @@ export async function findOrSearchMediaItem(
   if (imdbId && imdbId.startsWith('tt')) {
     try {
       const data = await tmdbFetch(`/find/${imdbId}`, { external_source: 'imdb_id' });
-      if (type === 'movie' && data.movie_results && data.movie_results.length > 0) {
-        return transformMedia(data.movie_results[0], 'movie');
-      }
-      if (type === 'show' && data.tv_results && data.tv_results.length > 0) {
-        return transformMedia(data.tv_results[0], 'show');
-      }
-      // If type mismatch but we found a result, trust the TMDB type
-      if (data.movie_results && data.movie_results.length > 0) {
-        return transformMedia(data.movie_results[0], 'movie');
-      }
-      if (data.tv_results && data.tv_results.length > 0) {
-        return transformMedia(data.tv_results[0], 'show');
+      if (type === 'show') {
+        if (data.tv_results && data.tv_results.length > 0) {
+          return transformMedia(data.tv_results[0], 'show');
+        }
+        if (data.movie_results && data.movie_results.length > 0) {
+          return transformMedia(data.movie_results[0], 'movie');
+        }
+      } else {
+        if (data.movie_results && data.movie_results.length > 0) {
+          return transformMedia(data.movie_results[0], 'movie');
+        }
+        if (data.tv_results && data.tv_results.length > 0) {
+          return transformMedia(data.tv_results[0], 'show');
+        }
       }
     } catch (err) {
       console.warn(`Find by IMDb ID ${imdbId} failed, falling back to search`, err);

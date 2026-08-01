@@ -149,9 +149,12 @@ export function ImdbImportWizard({ isOpen, onClose, importMultipleMediaItems }: 
       if (
         typeLower.includes('series') || 
         typeLower.includes('show') || 
-        typeLower.includes('tv') || 
         typeLower === 'tvseries' || 
-        typeLower === 'tvminiseries'
+        typeLower === 'tvminiseries' ||
+        typeLower === 'tvepisode' ||
+        typeLower === 'tvspecial' ||
+        typeLower === 'tvshort' ||
+        (typeLower.includes('tv') && !typeLower.includes('movie'))
       ) {
         type = 'show';
       } else {
