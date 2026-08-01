@@ -2755,7 +2755,11 @@ export default function App() {
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
                             {filteredProfileItems.slice(0, visibleCompletedTV).map(show => {
-                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const watchedKeysCount = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const watched = show.completed 
+                                ? Math.max(watchedKeysCount, show.episodesCount || 8)
+                                : watchedKeysCount;
+                              const totalEps = Math.max(show.episodesCount || 8, watched);
                               return (
                                 <MediaCard
                                     key={show.id}
@@ -2766,7 +2770,7 @@ export default function App() {
                                     }}
                                   onClick={() => setSelectedMediaItem(show)}
                                   watchedEpisodesCount={watched}
-                                  totalEpisodesCount={show.episodesCount || 8}
+                                  totalEpisodesCount={totalEps}
                                 />
                               );
                             })}
@@ -2896,7 +2900,11 @@ export default function App() {
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
                             {filteredProfileItems.slice(0, visibleFavTV).map(show => {
-                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const watchedKeysCount = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const watched = show.completed 
+                                ? Math.max(watchedKeysCount, show.episodesCount || 8)
+                                : watchedKeysCount;
+                              const totalEps = Math.max(show.episodesCount || 8, watched);
                               return (
                                 <MediaCard
                                     key={show.id}
@@ -2907,7 +2915,7 @@ export default function App() {
                                     }}
                                   onClick={() => setSelectedMediaItem(show)}
                                   watchedEpisodesCount={watched}
-                                  totalEpisodesCount={show.episodesCount || 8}
+                                  totalEpisodesCount={totalEps}
                                 />
                               );
                             })}
@@ -3037,7 +3045,11 @@ export default function App() {
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3.5">
                             {filteredProfileItems.slice(0, visibleStoppedWatching).map(show => {
-                              const watched = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const watchedKeysCount = Object.keys(state.watchedEpisodes[show.id] || {}).length;
+                              const watched = show.completed 
+                                ? Math.max(watchedKeysCount, show.episodesCount || 8)
+                                : watchedKeysCount;
+                              const totalEps = Math.max(show.episodesCount || 8, watched);
                               return (
                                 <MediaCard
                                     key={show.id}
@@ -3048,7 +3060,7 @@ export default function App() {
                                     }}
                                   onClick={() => setSelectedMediaItem(show)}
                                   watchedEpisodesCount={watched}
-                                  totalEpisodesCount={show.episodesCount || 8}
+                                  totalEpisodesCount={totalEps}
                                 />
                               );
                             })}

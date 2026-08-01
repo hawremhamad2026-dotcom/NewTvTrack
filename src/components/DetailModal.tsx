@@ -1847,6 +1847,9 @@ export function DetailModal({
             }))
           }));
           setSeasons(healedSeasons);
+          if (item.completed) {
+            toggleShowCompleted(item.id, healedSeasons, true, item);
+          }
           if (importMediaItem) {
             importMediaItem({ ...item, seasons: healedSeasons });
           }
@@ -3802,7 +3805,7 @@ export function DetailModal({
                           ) : (
                             season.episodes.map((episode) => {
                               const epKey = `S${season.seasonNumber}E${episode.episode}`;
-                              const isWatched = !!watchedMap[epKey];
+                              const isWatched = item.completed || !!watchedMap[epKey];
 
                               return (
                                 <div key={episode.id} className="flex flex-col sm:flex-row w-full bg-zinc-900/5 p-1 border border-transparent hover:border-white/5 hover:bg-zinc-900/15 rounded-2xl transition-all duration-300">

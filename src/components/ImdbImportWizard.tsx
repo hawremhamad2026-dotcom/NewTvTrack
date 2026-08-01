@@ -21,7 +21,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { MediaItem, MediaType } from '../types';
-import { findOrSearchMediaItem } from '../tmdb';
+import { findOrSearchMediaItem, fetchShowSeasons } from '../tmdb';
 
 interface ImdbImportWizardProps {
   isOpen: boolean;
@@ -262,6 +262,7 @@ export function ImdbImportWizard({ isOpen, onClose, importMultipleMediaItems }: 
       rating: number | null;
       makeFavorite: boolean;
       completed: boolean;
+      watchedEpisodesMap?: Record<string, boolean>;
     }[] = [];
 
     // Utility sleep to avoid hitting API rate limits
@@ -283,15 +284,47 @@ export function ImdbImportWizard({ isOpen, onClose, importMultipleMediaItems }: 
         
         if (matchedItem) {
           const makeFav = row.rating !== null && row.rating >= 8;
+          let showWatchedMap: Record<string, boolean> | undefined = undefined;
+
+          if (matchedItem.type === 'show') {
+            showWatchedMap = {};
+            try {
+              const seasons = await fetchShowSeasons(matchedItem.id, matchedItem.seasonsCount || 1);
+              if (seasons && seasons.length > 0) {
+                seasons.forEach(s => {
+                  if (s.episodes) {
+                    s.episodes.forEach(e => {
+                      showWatchedMap![`S${s.seasonNumber}E${e.episode}`] = true;
+                    });
+                  }
+                });
+              }
+            } catch (e) {
+              console.warn('Failed to fetch seasons during import', e);
+            }
+
+            if (Object.keys(showWatchedMap).length === 0) {
+              const numSeasons = matchedItem.seasonsCount || 1;
+              const totalEps = matchedItem.episodesCount || (numSeasons * 10);
+              const epsPerSeason = Math.max(1, Math.ceil(totalEps / numSeasons));
+              for (let s = 1; s <= numSeasons; s++) {
+                for (let e = 1; e <= epsPerSeason; e++) {
+                  showWatchedMap[`S${s}E${e}`] = true;
+                }
+              }
+            }
+          }
+
           importedItems.push({
             item: matchedItem,
             rating: row.rating,
             makeFavorite: makeFav,
-            completed: true
+            completed: true,
+            watchedEpisodesMap: showWatchedMap
           });
           
           setSuccessCount(prev => prev + 1);
-          addLog(`[Match] "${row.title}" matched with TMDB ID: ${matchedItem.id}${makeFav ? ' (⭐ Added to Favorites)' : ''}`);
+          addLog(`[Match] "${row.title}" matched as ${matchedItem.type === 'show' ? 'TV Show' : 'Movie'} (ID: ${matchedItem.id})${makeFav ? ' (⭐ Favorite)' : ''}`);
         } else {
           setFailCount(prev => prev + 1);
           addLog(`[Not Found] Could not find TMDB match for "${row.title}"`);

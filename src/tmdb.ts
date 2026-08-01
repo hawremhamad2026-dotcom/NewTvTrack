@@ -653,9 +653,27 @@ export async function findOrSearchMediaItem(
   if (imdbId && imdbId.startsWith('tt')) {
     try {
       const data = await tmdbFetch(`/find/${imdbId}`, { external_source: 'imdb_id' });
+      
+      // Check TV results first if requested type is 'show' or if tv_results/tv_episode_results exist
       if (type === 'show') {
         if (data.tv_results && data.tv_results.length > 0) {
-          return transformMedia(data.tv_results[0], 'show');
+          try {
+            const fullDetails = await tmdbFetch(`/tv/${data.tv_results[0].id}`, { append_to_response: 'credits' });
+            return transformMedia(fullDetails, 'show');
+          } catch {
+            return transformMedia(data.tv_results[0], 'show');
+          }
+        }
+        if (data.tv_episode_results && data.tv_episode_results.length > 0) {
+          const ep = data.tv_episode_results[0];
+          if (ep.show_id) {
+            try {
+              const fullDetails = await tmdbFetch(`/tv/${ep.show_id}`, { append_to_response: 'credits' });
+              return transformMedia(fullDetails, 'show');
+            } catch {
+              return transformMedia(ep, 'show');
+            }
+          }
         }
         if (data.movie_results && data.movie_results.length > 0) {
           return transformMedia(data.movie_results[0], 'movie');
@@ -665,7 +683,23 @@ export async function findOrSearchMediaItem(
           return transformMedia(data.movie_results[0], 'movie');
         }
         if (data.tv_results && data.tv_results.length > 0) {
-          return transformMedia(data.tv_results[0], 'show');
+          try {
+            const fullDetails = await tmdbFetch(`/tv/${data.tv_results[0].id}`, { append_to_response: 'credits' });
+            return transformMedia(fullDetails, 'show');
+          } catch {
+            return transformMedia(data.tv_results[0], 'show');
+          }
+        }
+        if (data.tv_episode_results && data.tv_episode_results.length > 0) {
+          const ep = data.tv_episode_results[0];
+          if (ep.show_id) {
+            try {
+              const fullDetails = await tmdbFetch(`/tv/${ep.show_id}`, { append_to_response: 'credits' });
+              return transformMedia(fullDetails, 'show');
+            } catch {
+              return transformMedia(ep, 'show');
+            }
+          }
         }
       }
     } catch (err) {
@@ -673,18 +707,45 @@ export async function findOrSearchMediaItem(
     }
   }
 
-  // 2. Search by Title
+  // 2. Search by Title with fallback across types
   try {
     const tmdbType = type === 'show' ? 'tv' : 'movie';
     const data = await tmdbFetch(`/search/${tmdbType}`, { query: title });
     if (data.results && data.results.length > 0) {
-      // Find exact or closest match
       const matched = data.results.find((r: any) => {
         const rTitle = r.title || r.name || '';
         return rTitle.toLowerCase() === title.toLowerCase();
       }) || data.results[0];
       
-      return transformMedia(matched, type);
+      if (type === 'show') {
+        try {
+          const fullDetails = await tmdbFetch(`/tv/${matched.id}`, { append_to_response: 'credits' });
+          return transformMedia(fullDetails, 'show');
+        } catch {
+          return transformMedia(matched, 'show');
+        }
+      }
+      return transformMedia(matched, 'movie');
+    }
+
+    // Try cross-search if primary type failed
+    const fallbackType = type === 'show' ? 'movie' : 'tv';
+    const fallbackData = await tmdbFetch(`/search/${fallbackType}`, { query: title });
+    if (fallbackData.results && fallbackData.results.length > 0) {
+      const matched = fallbackData.results.find((r: any) => {
+        const rTitle = r.title || r.name || '';
+        return rTitle.toLowerCase() === title.toLowerCase();
+      }) || fallbackData.results[0];
+
+      if (fallbackType === 'tv') {
+        try {
+          const fullDetails = await tmdbFetch(`/tv/${matched.id}`, { append_to_response: 'credits' });
+          return transformMedia(fullDetails, 'show');
+        } catch {
+          return transformMedia(matched, 'show');
+        }
+      }
+      return transformMedia(matched, 'movie');
     }
   } catch (err) {
     console.warn(`Search failed for ${title} (${type})`, err);

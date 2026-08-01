@@ -918,14 +918,16 @@ export function useAppState(isSiteLocked = false) {
       rating: number | null;
       makeFavorite: boolean;
       completed: boolean;
+      watchedEpisodesMap?: Record<string, boolean>;
     }[]
   ) => {
     setState(prev => {
       let updatedShows = [...prev.shows];
       let updatedMovies = [...prev.movies];
       let updatedFavorites = [...prev.favorites];
+      let updatedWatchedEpisodes = { ...prev.watchedEpisodes };
 
-      itemsToImport.forEach(({ item, rating, makeFavorite, completed }) => {
+      itemsToImport.forEach(({ item, rating, makeFavorite, completed, watchedEpisodesMap }) => {
         const enrichedItem = {
           ...item,
           userRating: rating,
@@ -947,6 +949,23 @@ export function useAppState(isSiteLocked = false) {
             };
           } else {
             updatedShows.push(enrichedItem);
+          }
+
+          if (completed) {
+            const existingEps = { ...(updatedWatchedEpisodes[item.id] || {}) };
+            if (watchedEpisodesMap && Object.keys(watchedEpisodesMap).length > 0) {
+              Object.assign(existingEps, watchedEpisodesMap);
+            } else {
+              const numSeasons = item.seasonsCount || 1;
+              const totalEps = item.episodesCount || (numSeasons * 10);
+              const epsPerSeason = Math.max(1, Math.ceil(totalEps / numSeasons));
+              for (let s = 1; s <= numSeasons; s++) {
+                for (let e = 1; e <= epsPerSeason; e++) {
+                  existingEps[`S${s}E${e}`] = true;
+                }
+              }
+            }
+            updatedWatchedEpisodes[item.id] = existingEps;
           }
         } else {
           const idx = updatedMovies.findIndex(m => m.id === item.id);
@@ -972,6 +991,7 @@ export function useAppState(isSiteLocked = false) {
         shows: updatedShows,
         movies: updatedMovies,
         favorites: updatedFavorites,
+        watchedEpisodes: updatedWatchedEpisodes,
         updatedAt: Date.now(),
       };
     });
