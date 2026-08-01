@@ -4,10 +4,11 @@
  */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { MediaItem, Season, Episode, MediaType, UserStats } from './types';
+import { MediaItem, Season, Episode, MediaType, UserStats, SavedState } from './types';
 import { INITIAL_SHOWS, INITIAL_MOVIES, getPredefinedSeasons, getUpcomingEpisodesTimeline, UpcomingEpisode, getPredefinedEpisodeRating } from './data';
 import { fetchMediaDetails, fetchShowSeasons } from './tmdb';
 import { getDeviceId } from './lib/auth';
+import { saveStateToStorage, loadStateFromStorage, getSyncLocalStorageState, clearAllStorage, STORAGE_KEY } from './lib/storage';
 
 export function getDefaultState(): SavedState {
   return {
@@ -45,19 +46,6 @@ export function getReleasedEpisodesCount(show: MediaItem): number {
   return show.episodesCount || 8;
 }
 
-interface SavedState {
-  shows: MediaItem[];
-  movies: MediaItem[];
-  // Map of showId -> Record of episodeId (S{season}E{episode}) -> boolean (watched)
-  watchedEpisodes: Record<number, Record<string, boolean>>;
-  favorites: number[]; // media item IDs
-  updatedAt?: number;
-}
-
-
-const STORAGE_KEY = 'tv_tracker_local_state';
-
-
 let isInitialLoad = true;
 
 export function getInitialState(): SavedState {
@@ -94,24 +82,8 @@ export function pruneInactiveState(prev: SavedState): SavedState {
 }
 
 const getStoredStateOrDefault = (): SavedState => {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const data = JSON.parse(stored);
-      const loadedShows = data.shows || [];
-      const loadedMovies = data.movies || [];
-      const loadedWatched = data.watchedEpisodes || {};
-      return {
-        shows: Array.from(new Map(loadedShows.map((s: any) => [s.id, s])).values()),
-        movies: Array.from(new Map(loadedMovies.map((m: any) => [m.id, m])).values()),
-        watchedEpisodes: loadedWatched,
-        favorites: data.favorites || [],
-        updatedAt: data.updatedAt || Date.now()
-      };
-    }
-  } catch (e) {
-    console.warn('Failed to load state from localStorage:', e);
-  }
+  const sync = getSyncLocalStorageState();
+  if (sync) return sync;
   return getDefaultState();
 };
 
@@ -138,23 +110,47 @@ export function useAppState(isSiteLocked = false) {
   useEffect(() => {
     if (isSiteLocked) return;
 
-    try {
-      const currentState = getStoredStateOrDefault();
-      initialLoadedCountRef.current = {
-        shows: currentState.shows.length,
-        movies: currentState.movies.length,
-        watchedEpisodes: Object.keys(currentState.watchedEpisodes || {}).length
-      };
-      setRawState(currentState);
-      setDbStatus({ usePostgres: false, hasDbUrl: false });
-      loadFailedRef.current = false;
-      isLoadedRef.current = true;
-      hasChangesRef.current = false;
-      setLoadFailed(false);
-      setIsLoaded(true);
-    } catch (e) {
-      console.warn('Failed to load state from localStorage:', e);
+    let isMounted = true;
+    async function loadStorage() {
+      try {
+        const syncState = getStoredStateOrDefault();
+        initialLoadedCountRef.current = {
+          shows: syncState.shows.length,
+          movies: syncState.movies.length,
+          watchedEpisodes: Object.keys(syncState.watchedEpisodes || {}).length
+        };
+        setRawState(syncState);
+
+        // Async load full state from IndexedDB if available and richer
+        const dbState = await loadStateFromStorage();
+        if (isMounted && dbState) {
+          const dbShowsCount = dbState.shows?.length || 0;
+          const dbMoviesCount = dbState.movies?.length || 0;
+          const dbWatchedCount = Object.keys(dbState.watchedEpisodes || {}).length;
+
+          if (dbShowsCount >= syncState.shows.length && dbMoviesCount >= syncState.movies.length) {
+            setRawState(dbState);
+            initialLoadedCountRef.current = {
+              shows: dbShowsCount,
+              movies: dbMoviesCount,
+              watchedEpisodes: dbWatchedCount
+            };
+          }
+        }
+
+        setDbStatus({ usePostgres: false, hasDbUrl: false });
+        loadFailedRef.current = false;
+        isLoadedRef.current = true;
+        hasChangesRef.current = false;
+        setLoadFailed(false);
+        setIsLoaded(true);
+      } catch (e) {
+        console.warn('Failed to load state from storage:', e);
+      }
     }
+
+    loadStorage();
+    return () => { isMounted = false; };
   }, [isSiteLocked, refetchTrigger]);
 
   const retryLoad = useCallback(() => {
@@ -197,17 +193,9 @@ export function useAppState(isSiteLocked = false) {
 
     try {
       hasChangesRef.current = false;
-      const strippedShows = pruned.shows.map(({ seasons, ...s }) => s);
-      const dataToSave = {
-        shows: strippedShows,
-        movies: pruned.movies,
-        watchedEpisodes: pruned.watchedEpisodes,
-        favorites: pruned.favorites,
-        updatedAt: Date.now()
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+      saveStateToStorage(pruned);
     } catch (e) {
-      console.warn('Failed to save state to localStorage:', e);
+      console.warn('Failed to save state to storage:', e);
       hasChangesRef.current = true;
     }
   }, []);
@@ -417,20 +405,8 @@ export function useAppState(isSiteLocked = false) {
     // Set state
     setRawState(finalState);
 
-    // Synchronously persist to localStorage right away
-    try {
-      const strippedShows = processedShows.map(({ seasons, ...s }) => s);
-      const dataToSave = {
-        shows: strippedShows,
-        movies: processedMovies,
-        watchedEpisodes: rawWatchedEpisodes,
-        favorites: finalFavorites,
-        updatedAt: Date.now()
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-    } catch (e) {
-      console.warn('Failed synchronous localStorage write during importState:', e);
-    }
+    // Save to IndexedDB (full dataset) and localStorage (slimmed dataset) right away
+    saveStateToStorage(finalState);
 
     return true;
   };
@@ -1014,11 +990,7 @@ export function useAppState(isSiteLocked = false) {
   // Reset all user progress to zero (clear watchlist, completed, stopped, ratings, watched history, favorites)
   const resetAllProgress = () => {
     isResettingRef.current = true;
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch (e) {
-      console.warn('Failed to remove from localStorage:', e);
-    }
+    clearAllStorage();
     setState({
       shows: state.shows.map(s => ({
         ...s,

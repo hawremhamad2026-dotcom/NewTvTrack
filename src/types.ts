@@ -62,6 +62,14 @@ export interface DirectorMember {
   profilePath: string | null;
 }
 
+export interface SavedState {
+  shows: MediaItem[];
+  movies: MediaItem[];
+  watchedEpisodes: Record<number, Record<string, boolean>>;
+  favorites: number[];
+  updatedAt?: number;
+}
+
 export interface WatchHistoryItem {
   id: string; // unique ID like 'movie-123' or 'show-123-S1E2'
   mediaId: number;
