@@ -590,39 +590,69 @@ export async function fetchTraktList(
   year?: string,
   genre?: string
 ): Promise<MediaItem[]> {
-  const traktType = mediaType === 'show' ? 'shows' : 'movies';
-  
   if (listType === 'boxoffice' && mediaType === 'show') {
     return []; // No boxoffice for TV shows
   }
 
+  const clientID = getTraktClientId();
+
+  // Try server proxy route first
+  try {
+    let proxyUrl = `/api/trakt-list?mediaType=${mediaType}&listType=${listType}&page=${page}&limit=${limit}`;
+    if (year) proxyUrl += `&year=${encodeURIComponent(year)}`;
+    if (genre) proxyUrl += `&genre=${encodeURIComponent(genre)}`;
+    if (clientID) proxyUrl += `&clientId=${encodeURIComponent(clientID)}`;
+
+    const res = await fetch(proxyUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.items) && data.items.length > 0) {
+        return data.items;
+      }
+    }
+  } catch (e) {
+    console.warn('Proxy fetchTraktList failed, attempting direct fetch fallback:', e);
+  }
+
+  // Direct fetch fallback if server proxy fails
+  const traktType = mediaType === 'show' ? 'shows' : 'movies';
   let url = `https://api.trakt.tv/${traktType}/${listType}?page=${page}&limit=${limit}&extended=full`;
-  
   if (year) url += `&years=${year}`;
   if (genre) url += `&genres=${genre}`;
-  
-  const clientID = getTraktClientId();
+
   try {
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'trakt-api-version': '2',
-        'trakt-api-key': clientID
+        'trakt-api-key': clientID || 'e52812225595b18eeae7720d8ec9322eca18708e1ae1935d0007990be9ae5388'
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Trakt API request failed with status ${response.status}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        return data.map((item: any) => {
+          const raw = item[mediaType] || item.movie || item.show || item;
+          return transformTraktMedia(raw, mediaType);
+        });
+      }
     }
-
-    const data = await response.json();
-    return data.map((item: any) => {
-      const raw = item[mediaType] || item; // item.show, item.movie, or just item
-      return transformTraktMedia(raw, mediaType);
-    });
   } catch (error) {
     console.warn(`Error fetching Trakt ${listType} for ${mediaType}:`, error);
+  }
+
+  // Ultimate fallback to standard TMDB discover/trending
+  try {
+    if (mediaType === 'show') {
+      const res = await fetchTrending('tv', 'week');
+      return res;
+    } else {
+      const res = await fetchTrending('movie', 'week');
+      return res;
+    }
+  } catch (e) {
     return [];
   }
 }

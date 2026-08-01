@@ -157,8 +157,7 @@ async function startServer() {
     }
   });
 
-  // API: Get IMDb reviews via GraphQL
-  // API: Get IMDb Rating
+  // API: Get IMDb Rating with OMDB & TMDB Fallbacks
   app.get("/api/imdb-rating", async (req, res): Promise<void> => {
     const { imdbId } = req.query;
     if (!imdbId || typeof imdbId !== "string") {
@@ -166,23 +165,35 @@ async function startServer() {
       return;
     }
     
+    // 1. Try OMDB API first for real IMDb ratings & votes
+    try {
+      const omdbRes = await fetch(`https://www.omdbapi.com/?i=${encodeURIComponent(imdbId)}&apikey=trilogy`);
+      if (omdbRes.ok) {
+        const omdbData = await omdbRes.json();
+        if (omdbData && omdbData.Response !== "False" && omdbData.imdbRating) {
+          const rating = parseFloat(omdbData.imdbRating) || null;
+          const votes = parseInt((omdbData.imdbVotes || '0').replace(/,/g, ''), 10) || 0;
+          res.json({ rating, votes });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('OMDB rating fetch failed:', e);
+    }
+
+    // 2. Try IMDb GraphQL
     try {
       const BASE_URL = "https://caching.graphql.imdb.com/";
       const headers = {
         'accept': 'application/graphql+json, application/json',
         'content-type': 'application/json',
-        'origin': 'https://www.imdb.com'
+        'origin': 'https://www.imdb.com',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       };
       
       const payload = {
         query: `query GetTitleRating($id: ID!) {
           title(id: $id) {
-            titleText {
-              text
-            }
-            releaseYear {
-              year
-            }
             ratingsSummary {
               aggregateRating
               voteCount
@@ -190,9 +201,7 @@ async function startServer() {
           }
         }`,
         operationName: "GetTitleRating",
-        variables: {
-          id: imdbId
-        }
+        variables: { id: imdbId }
       };
       
       const response = await fetch(BASE_URL, {
@@ -201,28 +210,43 @@ async function startServer() {
         body: JSON.stringify(payload)
       });
       
-      if (!response.ok) {
-        throw new Error(`IMDb API returned status ${response.status}`);
+      if (response.ok) {
+        const data = await response.json();
+        const titleData = data?.data?.title;
+        if (titleData?.ratingsSummary) {
+          const rating = titleData.ratingsSummary.aggregateRating || null;
+          const votes = titleData.ratingsSummary.voteCount || 0;
+          res.json({ rating, votes });
+          return;
+        }
       }
-      
-      const data = await response.json();
-      const titleData = data?.data?.title;
-      
-      if (!titleData) {
-        res.status(404).json({ error: "Not found" });
-        return;
-      }
-      
-      const rating = titleData.ratingsSummary?.aggregateRating || null;
-      const votes = titleData.ratingsSummary?.voteCount || 0;
-      
-      res.json({ rating, votes });
-    } catch (error) {
-      console.error('Error fetching IMDb rating:', error);
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      // ignore
     }
+
+    // 3. Fallback to TMDB rating using IMDb ID
+    try {
+      const tmdbApiKey = '92cb9e28d9c7c9028682a433e85ea5d9';
+      const tmdbRes = await fetch(`https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id&api_key=${tmdbApiKey}`);
+      if (tmdbRes.ok) {
+        const tmdbData = await tmdbRes.json();
+        const item = tmdbData?.movie_results?.[0] || tmdbData?.tv_results?.[0];
+        if (item) {
+          const rating = item.vote_average ? Number(item.vote_average.toFixed(1)) : null;
+          const votes = item.vote_count || 0;
+          res.json({ rating, votes });
+          return;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Safe default fallback
+    res.json({ rating: null, votes: 0 });
   });
 
+  // API: Get IMDb Reviews with TMDB Fallback
   app.get("/api/imdb-reviews", async (req, res): Promise<void> => {
     const { imdbId } = req.query;
     if (!imdbId || typeof imdbId !== "string") {
@@ -230,6 +254,7 @@ async function startServer() {
       return;
     }
     
+    // 1. Try GraphQL first
     try {
       const BASE_URL = "https://caching.graphql.imdb.com/";
       const PAGE_SIZE = 25;
@@ -239,7 +264,7 @@ async function startServer() {
         'accept-language': 'en-US,en;q=0.9',
         'content-type': 'application/json',
         'origin': 'https://www.imdb.com',
-        'priority': 'u=1, i'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       };
 
       const getPayload = (afterCursor: string | null) => ({
@@ -249,29 +274,15 @@ async function startServer() {
               edges {
                 node {
                   id
-                  author {
-                    nickName
-                  }
+                  author { nickName }
                   authorRating
-                  helpfulness {
-                    upVotes
-                    downVotes
-                  }
+                  helpfulness { upVotes downVotes }
                   submissionDate
-                  text {
-                    originalText {
-                      plainText
-                    }
-                  }
-                  summary {
-                    originalText
-                  }
+                  text { originalText { plainText } }
+                  summary { originalText }
                 }
               }
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
+              pageInfo { hasNextPage endCursor }
             }
           }
         }`,
@@ -280,73 +291,242 @@ async function startServer() {
           const: imdbId,
           filter: {},
           first: PAGE_SIZE,
-          sort: {
-            by: "HELPFULNESS_SCORE",
-            order: "DESC"
-          },
+          sort: { by: "HELPFULNESS_SCORE", order: "DESC" },
           ...(afterCursor ? { after: afterCursor } : {})
         }
       });
 
-      // Fetch first page
       const res1 = await fetch(BASE_URL, {
         method: 'POST',
         headers,
         body: JSON.stringify(getPayload(null))
       });
-      
-      if (!res1.ok) {
-        throw new Error(`IMDb API returned status ${res1.status}`);
-      }
-      
-      const data1 = await res1.json();
-      if (data1.errors) {
-        throw new Error(data1.errors[0]?.message || "GraphQL error");
-      }
-      
-      let allEdges = data1.data?.title?.reviews?.edges || [];
-      const pageInfo = data1.data?.title?.reviews?.pageInfo;
-      
-      // Fetch second page if needed (to get up to 50)
-      if (pageInfo?.hasNextPage && pageInfo?.endCursor && allEdges.length < 50) {
-        const res2 = await fetch(BASE_URL, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(getPayload(pageInfo.endCursor))
-        });
-        if (res2.ok) {
-          const data2 = await res2.json();
-          if (!data2.errors) {
-            const moreEdges = data2.data?.title?.reviews?.edges || [];
-            allEdges = [...allEdges, ...moreEdges];
+
+      if (res1.ok) {
+        const data1 = await res1.json();
+        if (!data1.errors && data1.data?.title?.reviews?.edges) {
+          let allEdges = data1.data.title.reviews.edges || [];
+          const formattedReviews = allEdges.slice(0, 50).map((edge: any) => {
+            const node = edge.node;
+            return {
+              id: node.id,
+              author: node.author?.nickName || "IMDb User",
+              rating: node.authorRating,
+              content: node.text?.originalText?.plainText || "",
+              summary: node.summary?.originalText || "",
+              createdAt: node.submissionDate,
+              likes: node.helpfulness?.upVotes || 0,
+              downVotes: node.helpfulness?.downVotes || 0,
+              source: 'imdb'
+            };
+          });
+          if (formattedReviews.length > 0) {
+            res.json({ reviews: formattedReviews });
+            return;
           }
         }
       }
-
-      // Format the results to match the TMDBReview interface somewhat, or just return as is and format in client
-      const formattedReviews = allEdges.slice(0, 50).map((edge: any) => {
-        const node = edge.node;
-        return {
-          id: node.id,
-          author: node.author?.nickName || "IMDb User",
-          rating: node.authorRating,
-          content: node.text?.originalText?.plainText || "",
-          summary: node.summary?.originalText || "",
-          createdAt: node.submissionDate,
-          likes: node.helpfulness?.upVotes || 0,
-          downVotes: node.helpfulness?.downVotes || 0,
-          source: 'imdb'
-        };
-      });
-
-      res.json({ reviews: formattedReviews });
-    } catch (error: any) {
-      console.error("IMDb Reviews API error:", error);
-      res.status(500).json({ error: error.message || "Failed to fetch IMDb reviews" });
+    } catch (e) {
+      console.warn("GraphQL IMDb reviews fetch failed, falling back to TMDB reviews:", e);
     }
+
+    // 2. Fallback to TMDB reviews using IMDb ID
+    try {
+      const tmdbApiKey = '92cb9e28d9c7c9028682a433e85ea5d9';
+      const findRes = await fetch(`https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id&api_key=${tmdbApiKey}`);
+      if (findRes.ok) {
+        const findData = await findRes.json();
+        const movie = findData?.movie_results?.[0];
+        const tv = findData?.tv_results?.[0];
+        
+        const mediaType = movie ? 'movie' : (tv ? 'tv' : null);
+        const mediaId = movie ? movie.id : (tv ? tv.id : null);
+
+        if (mediaType && mediaId) {
+          const revRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${mediaId}/reviews?api_key=${tmdbApiKey}`);
+          if (revRes.ok) {
+            const revData = await revRes.json();
+            const tmdbReviews = (revData.results || []).map((r: any) => ({
+              id: r.id,
+              author: r.author_details?.name || r.author || 'Reviewer',
+              rating: r.author_details?.rating ? Math.round(r.author_details.rating) : null,
+              content: r.content || '',
+              summary: (r.content || '').slice(0, 120) + '...',
+              createdAt: r.created_at,
+              likes: 0,
+              downVotes: 0,
+              source: 'imdb'
+            }));
+            res.json({ reviews: tmdbReviews });
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("TMDB fallback reviews fetch failed:", e);
+    }
+
+    // Safe default fallback
+    res.json({ reviews: [] });
   });
 
 
+
+  // API: Get Trakt List with TMDB Fallback & Poster Hydration
+  app.get("/api/trakt-list", async (req, res): Promise<void> => {
+    const { mediaType = 'movie', listType = 'trending', page = '1', limit = '20', year, genre, clientId } = req.query;
+    const typeStr = mediaType === 'show' ? 'show' : 'movie';
+    const traktType = typeStr === 'show' ? 'shows' : 'movies';
+    const tmdbApiKey = '92cb9e28d9c7c9028682a433e85ea5d9';
+    const traktClientId = (clientId && typeof clientId === 'string' && clientId.trim())
+      ? clientId.trim()
+      : 'e52812225595b18eeae7720d8ec9322eca18708e1ae1935d0007990be9ae5388';
+
+    let traktSuccess = false;
+    let items: any[] = [];
+
+    // 1. Try Trakt API first
+    try {
+      let traktUrl = `https://api.trakt.tv/${traktType}/${listType}?page=${page}&limit=${limit}&extended=full`;
+      if (year) traktUrl += `&years=${encodeURIComponent(String(year))}`;
+      if (genre) traktUrl += `&genres=${encodeURIComponent(String(genre))}`;
+
+      const response = await fetch(traktUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'trakt-api-version': '2',
+          'trakt-api-key': traktClientId,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          items = data.map((item: any) => {
+            const raw = item[typeStr] || item.movie || item.show || item;
+            return {
+              id: raw.ids?.tmdb || raw.ids?.trakt || Math.floor(Math.random() * 1000000),
+              type: typeStr,
+              title: raw.title || 'Untitled',
+              posterPath: raw.images?.poster?.[0] ? `https://${raw.images.poster[0]}` : '',
+              backdropPath: raw.images?.fanart?.[0] ? `https://${raw.images.fanart[0]}` : '',
+              overview: raw.overview || 'No description available.',
+              rating: raw.rating ? Number((raw.rating).toFixed(1)) : 0,
+              releaseDate: raw.released || raw.first_aired || '',
+              genres: raw.genres || [],
+              trailerUrl: raw.trailer || null,
+              tmdbId: raw.ids?.tmdb,
+              imdbId: raw.ids?.imdb,
+              runtime: raw.runtime || 0,
+              status: raw.status || 'Unknown',
+              inWatchlist: false,
+              isFavorite: false,
+              userRating: null,
+              completed: false,
+            };
+          });
+          traktSuccess = true;
+        }
+      }
+    } catch (e) {
+      console.warn('[Trakt Proxy] Trakt API request failed:', e);
+    }
+
+    // 2. If Trakt API returned items, hydrate missing posters/backdrops with TMDB details
+    if (traktSuccess && items.length > 0) {
+      const hydratedItems = await Promise.all(items.map(async (item) => {
+        if (item.posterPath && item.backdropPath) return item;
+        if (item.tmdbId) {
+          try {
+            const tmdbRes = await fetch(`https://api.themoviedb.org/3/${typeStr === 'show' ? 'tv' : 'movie'}/${item.tmdbId}?api_key=${tmdbApiKey}`);
+            if (tmdbRes.ok) {
+              const tmdbData = await tmdbRes.json();
+              return {
+                ...item,
+                posterPath: item.posterPath || (tmdbData.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbData.poster_path}` : ''),
+                backdropPath: item.backdropPath || (tmdbData.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbData.backdrop_path}` : ''),
+                overview: item.overview && item.overview !== 'No description available.' ? item.overview : (tmdbData.overview || 'No description available.'),
+                releaseDate: item.releaseDate || tmdbData.release_date || tmdbData.first_air_date || '',
+                rating: item.rating || (tmdbData.vote_average ? Number(tmdbData.vote_average.toFixed(1)) : 0),
+              };
+            }
+          } catch (e) {}
+        }
+        return item;
+      }));
+      res.json({ source: 'trakt', items: hydratedItems });
+      return;
+    }
+
+    // 3. Fallback: Query TMDB for equivalent high quality curated list
+    try {
+      let tmdbEndpoint = '';
+      const pageNum = Number(page) || 1;
+
+      if (typeStr === 'movie') {
+        switch (listType) {
+          case 'popular': tmdbEndpoint = `movie/popular?page=${pageNum}`; break;
+          case 'anticipated':
+          case 'upcoming': tmdbEndpoint = `movie/upcoming?page=${pageNum}`; break;
+          case 'boxoffice': tmdbEndpoint = `movie/now_playing?page=${pageNum}`; break;
+          case 'favorited': tmdbEndpoint = `movie/top_rated?page=${pageNum}`; break;
+          case 'played':
+          case 'watched': tmdbEndpoint = `discover/movie?sort_by=vote_count.desc&page=${pageNum}`; break;
+          case 'trending':
+          default: tmdbEndpoint = `trending/movie/week?page=${pageNum}`; break;
+        }
+      } else { // show
+        switch (listType) {
+          case 'popular': tmdbEndpoint = `tv/popular?page=${pageNum}`; break;
+          case 'anticipated':
+          case 'upcoming': tmdbEndpoint = `tv/on_the_air?page=${pageNum}`; break;
+          case 'favorited': tmdbEndpoint = `tv/top_rated?page=${pageNum}`; break;
+          case 'played':
+          case 'watched': tmdbEndpoint = `discover/tv?sort_by=vote_count.desc&page=${pageNum}`; break;
+          case 'trending':
+          default: tmdbEndpoint = `trending/tv/week?page=${pageNum}`; break;
+        }
+      }
+
+      if (year && !tmdbEndpoint.includes('discover')) {
+        const paramName = typeStr === 'movie' ? 'primary_release_year' : 'first_air_date_year';
+        tmdbEndpoint = `discover/${typeStr === 'movie' ? 'movie' : 'tv'}?sort_by=popularity.desc&page=${pageNum}&${paramName}=${year}`;
+      }
+
+      const joinChar = tmdbEndpoint.includes('?') ? '&' : '?';
+      const tmdbUrl = `https://api.themoviedb.org/3/${tmdbEndpoint}${joinChar}api_key=${tmdbApiKey}`;
+      const tmdbRes = await fetch(tmdbUrl);
+
+      if (tmdbRes.ok) {
+        const tmdbData = await tmdbRes.json();
+        const rawResults = tmdbData.results || [];
+        const fallbackItems = rawResults.map((m: any) => ({
+          id: m.id,
+          tmdbId: m.id,
+          type: typeStr,
+          title: m.title || m.name || 'Untitled',
+          posterPath: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : '',
+          backdropPath: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : '',
+          overview: m.overview || 'No description available.',
+          rating: m.vote_average ? Number(m.vote_average.toFixed(1)) : 0,
+          releaseDate: m.release_date || m.first_air_date || '',
+          genres: m.genre_ids || [],
+          inWatchlist: false,
+          isFavorite: false,
+          userRating: null,
+          completed: false,
+        }));
+        res.json({ source: 'tmdb_fallback', items: fallbackItems });
+        return;
+      }
+    } catch (e) {
+      console.warn('[Trakt Proxy] TMDB fallback failed:', e);
+    }
+
+    res.json({ source: 'empty', items: [] });
+  });
 
   // API: Video proxy to avoid mixed content (HTTP inside HTTPS) and enable in-app player
   app.get("/api/proxy-video", (req, res): void => {
