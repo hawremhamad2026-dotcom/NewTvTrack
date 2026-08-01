@@ -340,10 +340,6 @@ export default function App() {
     setProfileYear('All');
     setProfileSort('date_added');
   }, [profileListTab]);
-  const [syncIdInput, setSyncIdInput] = useState('');
-  const [loadingSyncInput, setLoadingSyncInput] = useState('');
-  const [showLoadingSyncEdit, setShowLoadingSyncEdit] = useState(false);
-  const [isEditingSyncId, setIsEditingSyncId] = useState(false);
   const [revealHoursSpent, setRevealHoursSpent] = useState(false);
   const [isLightMode, setIsLightMode] = useState(() => {
     return localStorage.getItem('theme') === 'light';
@@ -963,135 +959,6 @@ export default function App() {
     );
   }
 
-  // Full-screen loading screen while cloud database state is restoring
-  if (!state.isLoaded) {
-    return (
-      <div className="min-h-screen bg-[#050505] text-[#F5F5F5] flex flex-col items-center justify-center font-sans antialiased select-none">
-        <div className="flex flex-col items-center gap-6 max-w-sm text-center px-6">
-          <div className="relative">
-            {state.loadFailed ? (
-              <div className="relative w-16 h-16 rounded-2xl bg-red-950/40 border border-red-500/30 flex items-center justify-center shadow-2xl shadow-red-500/10">
-                <CloudOff className="w-8 h-8 text-red-400" />
-              </div>
-            ) : (
-              <>
-                <div className="absolute inset-0 bg-amber-500/20 blur-xl rounded-full animate-pulse" />
-                <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-2xl shadow-amber-500/30 animate-pulse">
-                  <Tv className="w-8 h-8 text-zinc-950" />
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <h1 className="font-display font-extrabold text-2xl tracking-tight bg-gradient-to-b from-[#F5F5F5] to-zinc-400 bg-clip-text text-transparent">
-              TV Time
-            </h1>
-            {state.loadFailed ? (
-              <p className="text-xs font-medium text-red-400">
-                Failed to sync with cloud. Check your connection.
-              </p>
-            ) : (
-              <p className="text-xs font-medium text-zinc-500 animate-pulse">
-                Restoring your personal cloud library...
-              </p>
-            )}
-          </div>
-
-          {state.loadFailed ? (
-            <button
-              onClick={state.retryLoad}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-white/10 hover:border-white/20 hover:bg-zinc-800 text-xs font-bold text-zinc-200 rounded-full transition-all cursor-pointer shadow-lg active:scale-95 animate-fade-in"
-            >
-              <RefreshCw className="w-3.5 h-3.5 animate-spin-once" />
-              Retry Sync
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/40 border border-white/5 rounded-full animate-fade-in">
-              <div className="w-3.5 h-3.5 border-2 border-zinc-700 border-t-amber-500 rounded-full animate-spin" />
-              <span className="text-[10px] font-bold text-zinc-400 tracking-wider uppercase">Syncing...</span>
-            </div>
-          )}
-
-          {/* Quick-switch / Manage Profile ID block */}
-          <div className="w-full border-t border-white/5 pt-5 mt-2 flex flex-col items-center">
-            {showLoadingSyncEdit ? (
-              <div className="w-full space-y-3 animate-fade-in text-left">
-                <p className="text-[10px] font-bold text-zinc-400 tracking-wider uppercase">
-                  Set Cloud Sync Device ID
-                </p>
-                <div className="flex gap-2 w-full">
-                  <input
-                    type="text"
-                    value={loadingSyncInput}
-                    onChange={(e) => setLoadingSyncInput(e.target.value)}
-                    placeholder="Enter Device ID (e.g. MyMostRecent)"
-                    className="flex-1 bg-zinc-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500/50"
-                  />
-                  <button
-                    onClick={() => {
-                      if (loadingSyncInput.trim()) {
-                        setDeviceId(loadingSyncInput.trim());
-                        window.location.reload();
-                      }
-                    }}
-                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs rounded-xl transition-colors cursor-pointer whitespace-nowrap"
-                  >
-                    Load
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    onClick={() => {
-                      setDeviceId('MyMostRecent');
-                      window.location.reload();
-                    }}
-                    className="text-[10px] font-semibold text-amber-500 bg-amber-500/10 border border-amber-500/25 px-2.5 py-1 rounded-lg hover:bg-amber-500/20 transition-all cursor-pointer"
-                  >
-                    Quick Load: MyMostRecent
-                  </button>
-                  <button
-                    onClick={() => setShowLoadingSyncEdit(false)}
-                    className="text-[10px] font-semibold text-zinc-500 hover:text-zinc-400 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-1.5">
-                <p className="text-[10px] text-zinc-500">
-                  Current ID: <span className="font-mono text-zinc-400">{getDeviceId()}</span>
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setLoadingSyncInput(getDeviceId());
-                      setShowLoadingSyncEdit(true);
-                    }}
-                    className="text-[10px] font-bold text-amber-500/80 hover:text-amber-400 transition-colors cursor-pointer underline underline-offset-4"
-                  >
-                    Switch Sync ID / Load Profile
-                  </button>
-                  <span className="text-[10px] text-zinc-700">|</span>
-                  <button
-                    onClick={() => {
-                      setDeviceId('MyMostRecent');
-                      window.location.reload();
-                    }}
-                    className="text-[10px] font-bold text-zinc-400 hover:text-[#F5F5F5] transition-colors cursor-pointer"
-                  >
-                    Use "MyMostRecent"
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // Full-screen passcode unlock screen blocker on startup
   if (isAppLocked) {
     return (
@@ -1127,29 +994,12 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                if (getDeviceId() !== 'MyMostRecent') {
-                  setDeviceId('MyMostRecent');
-                  window.location.reload();
-                } else {
-                  setActiveTab('profile');
-                  // Smooth scroll to the profile sync box
-                  setTimeout(() => {
-                    const el = document.getElementById('sync-id-input-field');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }, 200);
-                }
-              }}
-              title={getDeviceId() === 'MyMostRecent' ? "Active Profile: MyMostRecent (Click to view profile)" : "Switch to MyMostRecent Profile"}
-              className={`px-2.5 py-1.5 border rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                getDeviceId() === 'MyMostRecent'
-                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 hover:bg-amber-500/25'
-                  : 'bg-zinc-900 border-white/5 text-zinc-400 hover:border-amber-500/30 hover:text-amber-400 hover:bg-amber-500/5'
-              }`}
+              onClick={() => setActiveTab('profile')}
+              title="Local Storage Mode Active"
+              className="px-2.5 py-1.5 border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer hover:bg-emerald-500/20"
             >
-              <Cloud className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sync:</span>
-              <span className="font-mono">{getDeviceId().slice(0, 12)}{getDeviceId().length > 12 ? '...' : ''}</span>
+              <Database className="w-3.5 h-3.5" />
+              <span>LocalStorage</span>
             </button>
             
             <span className="px-2.5 py-1.5 bg-zinc-900/60 border border-white/5 rounded-lg text-[10px] font-semibold text-zinc-400 flex items-center gap-1">
@@ -3429,73 +3279,6 @@ export default function App() {
                     <span>{importError}</span>
                   </div>
                 )}
-              </div>
-
-
-              {/* CLOUD SYNC SECTION */}
-              <div className="bg-[#0A0A0A] border border-white/5 rounded-2xl p-5 sm:p-6 mb-8 flex flex-col gap-4 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-cyan-500/20 via-cyan-500/5 to-transparent"></div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
-                      <Cloud className="w-4 h-4 text-cyan-400" />
-                      Cloud Sync Device ID
-                    </h2>
-                    <p className="text-xs text-zinc-400 mt-1 max-w-[400px]">
-                      Your data is automatically synced to the cloud using this unique device ID. 
-                      You can use this ID on another device to restore your data.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center mt-2">
-                  <div id="sync-id-input-field" className="flex-1 bg-zinc-950/80 border border-white/10 rounded-xl px-4 py-3 flex items-center font-mono text-sm text-cyan-200">
-                    {isEditingSyncId ? (
-                      <input 
-                        type="text" 
-                        value={syncIdInput}
-                        onChange={(e) => setSyncIdInput(e.target.value)}
-                        placeholder="Enter Device ID"
-                        className="bg-transparent border-none outline-none w-full text-cyan-200"
-                        autoFocus
-                      />
-                    ) : (
-                      getDeviceId()
-                    )}
-                  </div>
-                  
-                  {isEditingSyncId ? (
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => {
-                          if (syncIdInput.trim()) {
-                            setDeviceId(syncIdInput.trim());
-                            window.location.reload();
-                          }
-                        }}
-                        className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 px-4 py-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap"
-                      >
-                        Apply & Reload
-                      </button>
-                      <button 
-                        onClick={() => setIsEditingSyncId(false)}
-                        className="bg-white/5 hover:bg-white/10 text-zinc-300 px-4 py-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button 
-                      onClick={() => {
-                        setSyncIdInput(getDeviceId());
-                        setIsEditingSyncId(true);
-                      }}
-                      className="bg-white/5 hover:bg-white/10 text-zinc-300 px-4 py-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap"
-                    >
-                      Change ID
-                    </button>
-                  )}
-                </div>
               </div>
 
               {/* DANGER ZONE / RESET SECTION */}

@@ -93,63 +93,68 @@ export function pruneInactiveState(prev: SavedState): SavedState {
   };
 }
 
+const getStoredStateOrDefault = (): SavedState => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const data = JSON.parse(stored);
+      const loadedShows = data.shows || [];
+      const loadedMovies = data.movies || [];
+      const loadedWatched = data.watchedEpisodes || {};
+      return {
+        shows: Array.from(new Map(loadedShows.map((s: any) => [s.id, s])).values()),
+        movies: Array.from(new Map(loadedMovies.map((m: any) => [m.id, m])).values()),
+        watchedEpisodes: loadedWatched,
+        favorites: data.favorites || [],
+        updatedAt: data.updatedAt || Date.now()
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to load state from localStorage:', e);
+  }
+  return getDefaultState();
+};
+
 export function useAppState(isSiteLocked = false) {
   const deviceIdRef = useRef<string>(getDeviceId());
-  const [state, setRawState] = useState<SavedState>(getDefaultState);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [state, setRawState] = useState<SavedState>(getStoredStateOrDefault);
+  const [isLoaded, setIsLoaded] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [refetchTrigger, setRefetchTrigger] = useState(0);
-  const [dbStatus, setDbStatus] = useState<{ usePostgres: boolean; hasDbUrl: boolean; dbError?: string | null } | null>(null);
-  const isLoadedRef = useRef(false);
+  const [dbStatus, setDbStatus] = useState<{ usePostgres: boolean; hasDbUrl: boolean; dbError?: string | null }>({ usePostgres: false, hasDbUrl: false });
+  const isLoadedRef = useRef(true);
   const loadFailedRef = useRef(false);
   const hasChangesRef = useRef(false);
   const fetchingRef = useRef<Set<string>>(new Set());
 
   // Safety refs for data loss prevention
-  const initialLoadedCountRef = useRef({ shows: 0, movies: 0, watchedEpisodes: 0 });
+  const initialLoadedCountRef = useRef({
+    shows: state.shows.length,
+    movies: state.movies.length,
+    watchedEpisodes: Object.keys(state.watchedEpisodes || {}).length
+  });
   const isResettingRef = useRef(false);
 
   useEffect(() => {
     if (isSiteLocked) return;
 
-    const loadState = () => {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const data = JSON.parse(stored);
-          const loadedShows = data.shows || [];
-          const loadedMovies = data.movies || [];
-          const loadedWatched = data.watchedEpisodes || {};
-
-          initialLoadedCountRef.current = {
-            shows: loadedShows.length,
-            movies: loadedMovies.length,
-            watchedEpisodes: Object.keys(loadedWatched).length
-          };
-
-          setRawState({
-            shows: Array.from(new Map(loadedShows.map((s: any) => [s.id, s])).values()),
-            movies: Array.from(new Map(loadedMovies.map((m: any) => [m.id, m])).values()),
-            watchedEpisodes: loadedWatched,
-            favorites: data.favorites || [],
-            updatedAt: data.updatedAt || Date.now()
-          });
-        } else {
-          setRawState(getDefaultState());
-        }
-        setDbStatus({ usePostgres: false, hasDbUrl: false });
-        loadFailedRef.current = false;
-        isLoadedRef.current = true;
-        hasChangesRef.current = false;
-        setLoadFailed(false);
-        setIsLoaded(true);
-      } catch (e) {
-        console.warn('Failed to load state from localStorage:', e);
-        setRawState(getDefaultState());
-        setIsLoaded(true);
-      }
-    };
-    loadState();
+    try {
+      const currentState = getStoredStateOrDefault();
+      initialLoadedCountRef.current = {
+        shows: currentState.shows.length,
+        movies: currentState.movies.length,
+        watchedEpisodes: Object.keys(currentState.watchedEpisodes || {}).length
+      };
+      setRawState(currentState);
+      setDbStatus({ usePostgres: false, hasDbUrl: false });
+      loadFailedRef.current = false;
+      isLoadedRef.current = true;
+      hasChangesRef.current = false;
+      setLoadFailed(false);
+      setIsLoaded(true);
+    } catch (e) {
+      console.warn('Failed to load state from localStorage:', e);
+    }
   }, [isSiteLocked, refetchTrigger]);
 
   const retryLoad = useCallback(() => {
