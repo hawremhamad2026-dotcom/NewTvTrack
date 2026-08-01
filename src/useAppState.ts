@@ -112,17 +112,11 @@ export function useAppState(isSiteLocked = false) {
   useEffect(() => {
     if (isSiteLocked) return;
 
-    const loadState = async () => {
+    const loadState = () => {
       try {
-        const deviceId = deviceIdRef.current;
-        // Avoid browser caching of state GET requests
-        const res = await fetch(`/api/state?t=${Date.now()}`, {
-          headers: {
-            'Authorization': 'Bearer ' + deviceId
-          }
-        });
-        if (res.ok) {
-          const data = await res.json();
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const data = JSON.parse(stored);
           const loadedShows = data.shows || [];
           const loadedMovies = data.movies || [];
           const loadedWatched = data.watchedEpisodes || {};
@@ -138,25 +132,21 @@ export function useAppState(isSiteLocked = false) {
             movies: Array.from(new Map(loadedMovies.map((m: any) => [m.id, m])).values()),
             watchedEpisodes: loadedWatched,
             favorites: data.favorites || [],
-            updatedAt: Date.now()
+            updatedAt: data.updatedAt || Date.now()
           });
-          if (data.dbStatus) {
-            setDbStatus(data.dbStatus);
-          }
-          loadFailedRef.current = false;
-          isLoadedRef.current = true;
-          hasChangesRef.current = false;
-          setLoadFailed(false);
-          setIsLoaded(true);
         } else {
-          console.warn('Failed to load state from cloud:', res.statusText);
-          loadFailedRef.current = true;
-          setLoadFailed(true);
+          setRawState(getDefaultState());
         }
+        setDbStatus({ usePostgres: false, hasDbUrl: false });
+        loadFailedRef.current = false;
+        isLoadedRef.current = true;
+        hasChangesRef.current = false;
+        setLoadFailed(false);
+        setIsLoaded(true);
       } catch (e) {
-        console.warn('Failed to load state from cloud:', e);
-        loadFailedRef.current = true;
-        setLoadFailed(true);
+        console.warn('Failed to load state from localStorage:', e);
+        setRawState(getDefaultState());
+        setIsLoaded(true);
       }
     };
     loadState();
@@ -175,15 +165,13 @@ export function useAppState(isSiteLocked = false) {
     stateRef.current = state;
   }, [state]);
 
-  const saveState = useCallback(async (currentState: SavedState, isUnloading = false) => {
+  const saveState = useCallback((currentState: SavedState) => {
     if (!isLoadedRef.current || loadFailedRef.current || !hasChangesRef.current) {
       return;
     }
 
-    // Safety prune to ensure inactive data is completely kept off our database
     const pruned = pruneInactiveState(currentState);
 
-    // Safety guard against saving empty state if the database previously had data
     const currentShowsCount = pruned.shows.length;
     const currentMoviesCount = pruned.movies.length;
     const currentWatchedCount = Object.keys(pruned.watchedEpisodes || {}).length;
@@ -192,7 +180,7 @@ export function useAppState(isSiteLocked = false) {
       (initialLoadedCountRef.current.shows > 0 && currentShowsCount === 0) ||
       (initialLoadedCountRef.current.watchedEpisodes > 0 && currentWatchedCount === 0)
     )) {
-      console.warn('[saveState] Blocked saving empty/wiped state to avoid overwriting existing cloud data!');
+      console.warn('[saveState] Blocked saving empty/wiped state');
       return;
     }
 
@@ -203,43 +191,18 @@ export function useAppState(isSiteLocked = false) {
     }
 
     try {
-      const deviceId = deviceIdRef.current;
       hasChangesRef.current = false;
-      
-      // Strip seasons from shows to prevent huge payloads exceeding browser keepalive limit (64KB)
       const strippedShows = pruned.shows.map(({ seasons, ...s }) => s);
-      
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + deviceId
+      const dataToSave = {
+        shows: strippedShows,
+        movies: pruned.movies,
+        watchedEpisodes: pruned.watchedEpisodes,
+        favorites: pruned.favorites,
+        updatedAt: Date.now()
       };
-
-      if (isReset) {
-        headers['x-force-reset'] = 'true';
-      }
-
-      const fetchOptions: RequestInit = {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          shows: strippedShows,
-          movies: pruned.movies,
-          watchedEpisodes: pruned.watchedEpisodes,
-          favorites: pruned.favorites
-        })
-      };
-
-      if (isUnloading) {
-        fetchOptions.keepalive = true;
-      }
-
-      const res = await fetch('/api/state', fetchOptions);
-      if (!res.ok) {
-        console.warn('Failed to save state to cloud:', res.statusText);
-        hasChangesRef.current = true;
-      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
     } catch (e) {
-      console.warn('Failed to save state to cloud:', e);
+      console.warn('Failed to save state to localStorage:', e);
       hasChangesRef.current = true;
     }
   }, []);
@@ -248,7 +211,7 @@ export function useAppState(isSiteLocked = false) {
     if (!isLoaded || loadFailedRef.current) return;
     
     const timeoutId = setTimeout(() => {
-      saveState(state, false);
+      saveState(state);
     }, 300); // 300ms responsive debounce
     
     return () => clearTimeout(timeoutId);
@@ -258,13 +221,13 @@ export function useAppState(isSiteLocked = false) {
     if (!isLoaded || loadFailedRef.current) return;
 
     const handleBeforeUnload = () => {
-      saveState(stateRef.current, true);
+      saveState(stateRef.current);
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      saveState(stateRef.current, true); // Flush on unmount
+      saveState(stateRef.current); // Flush on unmount
     };
   }, [isLoaded, saveState]);
 
@@ -867,6 +830,11 @@ export function useAppState(isSiteLocked = false) {
   // Reset all user progress to zero (clear watchlist, completed, stopped, ratings, watched history, favorites)
   const resetAllProgress = () => {
     isResettingRef.current = true;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {
+      console.warn('Failed to remove from localStorage:', e);
+    }
     setState({
       shows: state.shows.map(s => ({
         ...s,
