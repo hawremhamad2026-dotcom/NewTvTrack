@@ -289,15 +289,22 @@ export function ImdbImportWizard({ isOpen, onClose, importMultipleMediaItems }: 
           if (matchedItem.type === 'show') {
             showWatchedMap = {};
             try {
-              const seasons = await fetchShowSeasons(matchedItem.id, matchedItem.seasonsCount || 1);
+              const seasons = await fetchShowSeasons(matchedItem.id, matchedItem.seasonsCount);
               if (seasons && seasons.length > 0) {
+                matchedItem.seasons = seasons;
+                matchedItem.seasonsCount = seasons.length;
+                let totalEps = 0;
                 seasons.forEach(s => {
                   if (s.episodes) {
+                    totalEps += s.episodes.length;
                     s.episodes.forEach(e => {
                       showWatchedMap![`S${s.seasonNumber}E${e.episode}`] = true;
                     });
                   }
                 });
+                if (totalEps > 0) {
+                  matchedItem.episodesCount = totalEps;
+                }
               }
             } catch (e) {
               console.warn('Failed to fetch seasons during import', e);

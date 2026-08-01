@@ -177,8 +177,18 @@ export async function fetchMediaDetails(id: number, type: MediaType): Promise<Me
 }
 
 // Fetch seasons of a show
-export async function fetchShowSeasons(showId: number, seasonsCount: number): Promise<Season[]> {
-  const seasonsToFetch = Math.min(seasonsCount || 1, 12); // Limit to 12 seasons to prevent abuse, covering 99% of shows
+export async function fetchShowSeasons(showId: number, seasonsCount?: number): Promise<Season[]> {
+  let count = seasonsCount;
+  if (!count || count <= 0) {
+    try {
+      const showDetails = await tmdbFetch(`/tv/${showId}`);
+      count = showDetails.number_of_seasons || 1;
+    } catch {
+      count = 1;
+    }
+  }
+
+  const seasonsToFetch = Math.min(Math.max(1, count), 50);
   
   const promises = Array.from({ length: seasonsToFetch }, (_, i) => {
     const seasonNumber = i + 1;

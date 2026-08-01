@@ -652,24 +652,49 @@ export function useAppState(isSiteLocked = false) {
       const show = prev.shows.find(s => s.id === showId);
       const shouldComplete = forceComplete !== undefined ? forceComplete : !(show?.completed);
       
-      const showEps = { ...(prev.watchedEpisodes[showId] || {}) };
+      let showEps = { ...(prev.watchedEpisodes[showId] || {}) };
       
       if (shouldComplete) {
         // Mark all episodes of all seasons as watched
-        seasons.forEach(season => {
-          season.episodes.forEach(episode => {
-            const epKey = `S${season.seasonNumber}E${episode.episode}`;
-            showEps[epKey] = true;
+        if (seasons && seasons.length > 0) {
+          seasons.forEach(season => {
+            season.episodes.forEach(episode => {
+              const epKey = `S${season.seasonNumber}E${episode.episode}`;
+              showEps[epKey] = true;
+            });
           });
-        });
+        }
+        const targetShow = show || fullItem;
+        if (targetShow?.seasons && targetShow.seasons.length > 0) {
+          targetShow.seasons.forEach(season => {
+            season.episodes.forEach(episode => {
+              const epKey = `S${season.seasonNumber}E${episode.episode}`;
+              showEps[epKey] = true;
+            });
+          });
+        }
+        if (Object.keys(showEps).length === 0 && targetShow) {
+          const numSeasons = targetShow.seasonsCount || 1;
+          const totalEps = targetShow.episodesCount || (numSeasons * 10);
+          const epsPerSeason = Math.max(1, Math.ceil(totalEps / numSeasons));
+          for (let s = 1; s <= numSeasons; s++) {
+            for (let e = 1; e <= epsPerSeason; e++) {
+              showEps[`S${s}E${e}`] = true;
+            }
+          }
+        }
       } else {
         // Clear all episodes
-        seasons.forEach(season => {
-          season.episodes.forEach(episode => {
-            const epKey = `S${season.seasonNumber}E${episode.episode}`;
-            delete showEps[epKey];
+        if (seasons && seasons.length > 0) {
+          seasons.forEach(season => {
+            season.episodes.forEach(episode => {
+              const epKey = `S${season.seasonNumber}E${episode.episode}`;
+              delete showEps[epKey];
+            });
           });
-        });
+        } else {
+          showEps = {};
+        }
       }
 
       const updatedWatchedEpisodes = {
@@ -955,7 +980,17 @@ export function useAppState(isSiteLocked = false) {
             const existingEps = { ...(updatedWatchedEpisodes[item.id] || {}) };
             if (watchedEpisodesMap && Object.keys(watchedEpisodesMap).length > 0) {
               Object.assign(existingEps, watchedEpisodesMap);
-            } else {
+            }
+            if (item.seasons && item.seasons.length > 0) {
+              item.seasons.forEach(s => {
+                if (s.episodes) {
+                  s.episodes.forEach(e => {
+                    existingEps[`S${s.seasonNumber}E${e.episode}`] = true;
+                  });
+                }
+              });
+            }
+            if (Object.keys(existingEps).length === 0) {
               const numSeasons = item.seasonsCount || 1;
               const totalEps = item.episodesCount || (numSeasons * 10);
               const epsPerSeason = Math.max(1, Math.ceil(totalEps / numSeasons));
